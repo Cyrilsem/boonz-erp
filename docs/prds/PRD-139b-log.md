@@ -368,3 +368,29 @@ CURRENT_DATE` parameter -- no DB migration needed, the FE call just never passed
 - No DB migration, no Cody review required for this item (FE-only change plus one
   existing-parameter fix).
 - Time used: about 20 minutes (within the 25 minute box).
+
+### Item 8, machine photos (DONE)
+
+- Confirmed before writing anything: `storage.buckets` 0 rows, `dispatch_photos`
+  0 rows, zero `storage.objects` RLS policies. FE already used the right path
+  shape (`<machine_id>/<dubai_date>/<type>-<unique>.jpg`) but with a timestamp
+  instead of a uuid, and called `getPublicUrl` (would silently 404 once the
+  bucket is private) with the actual upload error swallowed by a bare `catch {}`.
+- Created private bucket `dispatch-photos` (`public=false`) and two
+  `storage.objects` RLS policies (INSERT, SELECT) scoped to field_staff/
+  warehouse/operator_admin/superadmin/manager via the standard `user_profiles`
+  role check, no anon access anywhere. Did not create `machine-issues`.
+- FE: switched both read sites (initial load, and right after upload) from
+  `getPublicUrl` to `createSignedUrl` (1 hour expiry); path's unique segment is
+  now `crypto.randomUUID()` matching the spec's convention exactly. Replaced the
+  silent `catch {}` with a `photoError` state per photo type, rendered as a red
+  dashed tile with "Photo not saved, tap to retry" -- the same file-input click
+  target still works for retry, now visibly signalling failure instead of
+  looking identical to success.
+- Cody: Verdict Approve. Articles checked 2, 3.
+- Migration `20261006063117_prd139b_8_dispatch_photos_bucket.sql`, rollback
+  `supabase/rollbacks/prd139b_8_rollback.sql`.
+- Verified live: bucket exists with `public=false`; both policies exist scoped
+  to `authenticated` with the role-check predicate.
+- `npx tsc --noEmit` clean.
+- Time used: about 20 minutes (within the 35 minute box).

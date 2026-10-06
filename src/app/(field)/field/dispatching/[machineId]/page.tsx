@@ -268,6 +268,11 @@ export default function DispatchingDetailPage() {
   const [photoUploading, setPhotoUploading] = useState<
     "before" | "after" | null
   >(null);
+  // PRD-139b Item 8: upload errors are visible and retry-able, never swallowed.
+  const [photoError, setPhotoError] = useState<{
+    before: string | null;
+    after: string | null;
+  }>({ before: null, after: null });
 
   const fetchData = useCallback(async () => {
     const supabase = createClient();
@@ -461,7 +466,8 @@ export default function DispatchingDetailPage() {
       if (allResolved) setSaved(true);
     }
 
-    // Photos for today
+    // Photos for today. PRD-139b Item 8: dispatch-photos is a private bucket, so
+    // getPublicUrl would silently hand back a URL that 404s -- signed URLs only.
     const { data: photoData } = await supabase
       .from("dispatch_photos")
       .select("photo_type, storage_path")
@@ -469,13 +475,14 @@ export default function DispatchingDetailPage() {
       .eq("dispatch_date", today);
 
     for (const p of photoData ?? []) {
-      const {
-        data: { publicUrl },
-      } = supabase.storage.from("dispatch-photos").getPublicUrl(p.storage_path);
+      const { data: signed } = await supabase.storage
+        .from("dispatch-photos")
+        .createSignedUrl(p.storage_path, 3600);
+      if (!signed?.signedUrl) continue;
       if (p.photo_type === "before")
-        setBeforePhoto({ path: p.storage_path, url: publicUrl });
+        setBeforePhoto({ path: p.storage_path, url: signed.signedUrl });
       if (p.photo_type === "after")
-        setAfterPhoto({ path: p.storage_path, url: publicUrl });
+        setAfterPhoto({ path: p.storage_path, url: signed.signedUrl });
     }
 
     setLoading(false);
@@ -528,6 +535,7 @@ export default function DispatchingDetailPage() {
 
   async function handlePhotoCapture(type: "before" | "after", file: File) {
     setPhotoUploading(type);
+    setPhotoError((prev) => ({ ...prev, [type]: null }));
     const supabase = createClient();
     const {
       data: { user },
@@ -536,30 +544,42 @@ export default function DispatchingDetailPage() {
     try {
       const compressed = await compressImage(file);
       const today = getDubaiDate();
-      const timestamp = Date.now();
-      const path = `${machineId}/${today}/${type}-${timestamp}.jpg`;
+      // PRD-139b Item 8: <machine_id>/<dubai_date>/<before|after>-<uuid>.jpg
+      const path = `${machineId}/${today}/${type}-${crypto.randomUUID()}.jpg`;
 
       const { error: uploadError } = await supabase.storage
         .from("dispatch-photos")
         .upload(path, compressed, { contentType: "image/jpeg" });
       if (uploadError) throw uploadError;
 
-      const {
-        data: { publicUrl },
-      } = supabase.storage.from("dispatch-photos").getPublicUrl(path);
+      const { data: signed, error: signError } = await supabase.storage
+        .from("dispatch-photos")
+        .createSignedUrl(path, 3600);
+      if (signError || !signed?.signedUrl) {
+        throw signError ?? new Error("Could not sign the photo URL");
+      }
 
-      await supabase.from("dispatch_photos").insert({
-        machine_id: machineId,
-        dispatch_date: today,
-        photo_type: type,
-        storage_path: path,
-        taken_by: user?.id ?? null,
-      });
+      const { error: insertError } = await supabase
+        .from("dispatch_photos")
+        .insert({
+          machine_id: machineId,
+          dispatch_date: today,
+          photo_type: type,
+          storage_path: path,
+          taken_by: user?.id ?? null,
+        });
+      if (insertError) throw insertError;
 
-      if (type === "before") setBeforePhoto({ path, url: publicUrl });
-      else setAfterPhoto({ path, url: publicUrl });
-    } catch {
-      // Silent fail — photos are optional
+      if (type === "before") setBeforePhoto({ path, url: signed.signedUrl });
+      else setAfterPhoto({ path, url: signed.signedUrl });
+    } catch (err) {
+      // PRD-139b Item 8: was a silent `catch {}` -- photos looked saved to the
+      // driver even when the upload failed. Now visible and retry-able.
+      console.error(`[Dispatch] ${type} photo upload failed:`, err);
+      setPhotoError((prev) => ({
+        ...prev,
+        [type]: "Photo not saved, tap to retry",
+      }));
     }
 
     setPhotoUploading(null);
@@ -1200,6 +1220,7 @@ export default function DispatchingDetailPage() {
           {(["before", "after"] as const).map((type) => {
             const photo = type === "before" ? beforePhoto : afterPhoto;
             const uploading = photoUploading === type;
+            const error = photoError[type];
             return (
               <div key={type} className="relative">
                 {photo ? (
@@ -1225,9 +1246,20 @@ export default function DispatchingDetailPage() {
                     </label>
                   </div>
                 ) : (
-                  <label className="flex h-32 cursor-pointer flex-col items-center justify-center gap-1 rounded-xl border-2 border-dashed border-neutral-300 bg-neutral-50 text-neutral-400 transition-colors hover:bg-neutral-100 dark:border-neutral-600 dark:bg-neutral-900 dark:hover:bg-neutral-800">
+                  <label
+                    className={
+                      error
+                        ? "flex h-32 cursor-pointer flex-col items-center justify-center gap-1 rounded-xl border-2 border-dashed border-red-300 bg-red-50 text-red-600 transition-colors hover:bg-red-100 dark:border-red-800 dark:bg-red-950/30 dark:text-red-400"
+                        : "flex h-32 cursor-pointer flex-col items-center justify-center gap-1 rounded-xl border-2 border-dashed border-neutral-300 bg-neutral-50 text-neutral-400 transition-colors hover:bg-neutral-100 dark:border-neutral-600 dark:bg-neutral-900 dark:hover:bg-neutral-800"
+                    }
+                  >
                     {uploading ? (
                       <span className="text-xs">Uploading…</span>
+                    ) : error ? (
+                      <>
+                        <span className="text-2xl">⚠</span>
+                        <span className="text-xs font-medium">{error}</span>
+                      </>
                     ) : (
                       <>
                         <span className="text-2xl">📷</span>
