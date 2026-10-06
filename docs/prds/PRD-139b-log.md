@@ -290,3 +290,42 @@ EXECUTE FUNCTION audit_log_write('<pk>')`) before writing. Added the same trigge
 - `npx tsc --noEmit` clean after all three FE repoints.
 - Time used: about 35 minutes (slightly over the 30 minute box, the Orders page's
   existing status-pill logic needed careful reading before a safe surgical change).
+
+### Item 5, one machine status everywhere (DONE, Home KPI card deferred)
+
+- Fetched `pg_get_viewdef` for `v_machine_pack_status` AND `v_dispatch_pack_progress`
+  (the second view it depends on, not mentioned by name in the PRD) before writing
+  anything. Found the vacuous-completion bug in two places, not one:
+  - `v_dispatch_pack_progress.ready_to_pack_close := (resolved_n = packable_n)`.
+    When `packable_n = 0` (a machine with no Add/Refill-type lines for the date,
+    only driver-action Remove lines, or nothing), this is vacuously true, and
+    `v_machine_pack_status.is_pack_complete` reads straight from it.
+  - `v_machine_pack_status.is_pickup_complete`/`is_dispatch_complete` had the same
+    gap for `total_included = 0`.
+  - `pack_state` only ever left `'open'` once a `dispatch_pack_confirmation` row
+    existed -- the PRD's "NOOK case".
+- Fixed all three, keeping both views' column lists stable. Verified live in a
+  rolled-back transaction before applying: JET on 2026-09-18 (`total_included = 0`)
+  now reads `is_pack_complete=false`, `is_pickup_complete=false`,
+  `is_dispatch_complete=false`, `pack_state='open'` (previously would have been
+  vacuously true/complete).
+- FE repoint check: grepped every `v_machine_pack_status` read site. Pickup,
+  Packing list, Dispatching list, and the pack-screen banner/reconfirm logic
+  already read `is_pack_complete`/`pack_state` straight from the view (no local
+  re-derivation) -- confirmed via `field/pickup/page.tsx` (explicitly commented
+  "Article 16: ... NOT when every line is packed"). These inherit the fix with
+  zero FE changes needed.
+- Deferred, logged not fixed (time-boxed, real regression risk): Home's "Daily
+  Refills" card (`packedMachines`/`pickedUpMachines`/`dispatchedMachines`) does
+  NOT read from the view at all -- it re-derives per-machine stage counts locally
+  in `machineStageCounts()` from raw `refill_dispatching` rows, with its own
+  `fillable` denominator and a deliberate "dispatched dominates" override
+  (PRD-087/086). Repointing this to the view would be a materially different,
+  riskier change than the 60 minute box allowed, since the view's semantics
+  (`total_included` denominator, no dominance override) don't match this
+  function's tuned business rules 1:1. Left as-is; flagged for a follow-up PRD
+  rather than guessed at under time pressure.
+- Cody: Verdict Approve. Articles checked 14, 16.
+- Migration `20261006062029_prd139b_5_v_machine_pack_status.sql`, rollback
+  `supabase/rollbacks/prd139b_5_rollback.sql`.
+- Time used: about 30 minutes (within the 60 minute box).
