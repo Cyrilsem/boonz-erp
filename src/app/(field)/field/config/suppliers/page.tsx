@@ -121,7 +121,7 @@ export default function SuppliersPage() {
     setLoading(true);
     const supabase = createClient();
     const { data } = await supabase
-      .from("suppliers")
+      .from("v_suppliers_full")
       .select("*")
       .order("supplier_name");
     setSuppliers((data as Supplier[]) ?? []);

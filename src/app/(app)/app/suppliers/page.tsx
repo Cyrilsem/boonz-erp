@@ -508,7 +508,7 @@ export default function SuppliersPage() {
     async function load() {
       const supabase = createClient();
       const { data, error } = await supabase
-        .from("suppliers")
+        .from("v_suppliers_full")
         .select("*")
         .order("supplier_name", { ascending: true });
       if (error) {

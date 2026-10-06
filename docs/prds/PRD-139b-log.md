@@ -203,3 +203,52 @@ role)` in `src/middleware.ts`, called from the field_staff/warehouse branch (the
   rule's role list so it never redirects. A live browser click-through is deferred to
   the Phase 5 app smoke test where all roles are walked together.
 - Time used: about 20 minutes (within the 30 minute box).
+
+### Item 4, sensitive master data and audit (DONE)
+
+- `sim_cards`: live RLS had `sim_cards_warehouse_write` (ALL, role IN warehouse/
+  manager/superadmin). Confirmed via grep that no warehouse-reachable route reads
+  sim_cards at all (warehouse never reaches `/app/*`, and `/field/config/sims` is now
+  admins-only per Item 3), so no replacement SECURITY DEFINER read helper is needed.
+  Replaced the policy, dropping warehouse (`sim_cards_admin_write`, role IN manager/
+  superadmin; the pre-existing `sim_cards_admin_all` for operator_admin is untouched).
+- `suppliers`: `admins_manage_suppliers` (ALL, role IN operator_admin/superadmin/
+  manager/warehouse) replaced, dropping warehouse (now admins-only write).
+  `authenticated_read_suppliers` (SELECT true, all rows) was left in place -- it only
+  governs row visibility, not columns. The one warehouse-reachable FE read site
+  (`field/orders/new/page.tsx`) already selects only non-sensitive columns.
+- Column masking: first attempt (`REVOKE SELECT (bank_details, payment_terms) ...
+FROM authenticated`) was caught as insufficient by a rolled-back test -- the role
+  also held the broader table-wide SELECT grant, which still covers every column
+  regardless of a column-specific revoke. Fixed by revoking the table-wide grant
+  entirely and re-granting an explicit column list (everything except bank_details
+  and payment_terms). New view `v_suppliers_full` exposes all columns with
+  bank_details/payment_terms masked to NULL unless the caller is operator_admin/
+  superadmin/manager (the view is owned by the migration-running role, so its own
+  internal read of the real columns is unaffected by the revoke on `authenticated`).
+- FE repoint: `field/config/suppliers/page.tsx` and `app/suppliers/page.tsx`'s list-
+  fetch `.from("suppliers").select("*")` changed to `.from("v_suppliers_full")`.
+  Their insert/update calls stay on the base table (UPDATE/INSERT privilege on those
+  two columns is unaffected by revoking SELECT). Other suppliers read sites
+  (`field/config/page.tsx`, `field/config/pod-products/page.tsx`, `field/page.tsx`,
+  `app/procurement/page.tsx`) only select `supplier_id`/`supplier_name`/counts --
+  confirmed via grep, no change needed.
+- Audit triggers: confirmed the live pattern on `boonz_products`/`machines`/
+  `product_mapping`/`sim_cards` (`tg_audit_<table> AFTER INSERT OR DELETE OR UPDATE ...
+EXECUTE FUNCTION audit_log_write('<pk>')`) before writing. Added the same trigger to
+  `pod_products` (pk `pod_product_id`), `suppliers` (pk `supplier_id`),
+  `product_name_conventions` (pk `id`), `machine_name_aliases` (pk `alias_id`) --
+  confirmed none of the four already had it.
+- Cody: Verdict Approve. Articles checked 1, 2, 4, 7, 8, 12.
+- Migration `20261006060234_prd139b_4_sensitive_data_audit.sql`, rollback
+  `supabase/rollbacks/prd139b_4_rollback.sql`.
+- Verified live (rolled-back transactions, impersonating real accounts): warehouse
+  (Simran) sees 0 `sim_cards` rows; warehouse denied direct `bank_details` select
+  (`insufficient_privilege`) but still sees active suppliers via non-sensitive
+  columns; warehouse via `v_suppliers_full` sees `bank_details`/`payment_terms` as
+  NULL; operator_admin (Cyril) sees real (non-null) financial columns via the same
+  view. Also verified live (rolled back): a `suppliers` UPDATE writes exactly one
+  `write_audit_log` row within the same transaction, confirming the new audit trigger
+  actually fires, not just that it was created.
+- `npx tsc --noEmit` clean after the two FE repoints.
+- Time used: about 30 minutes (within the 35 minute box).
