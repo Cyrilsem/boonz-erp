@@ -50,3 +50,24 @@ Residual, unchanged from PRD-139b: postgres still cannot alter
 supabase_admin's own default privileges. This watchdog is a mitigating
 control (closes any new exposure within 15 minutes), not a fix of the
 underlying permission ceiling.
+
+### Item 2: 7 dead tables with no RLS and anon SELECT - DONE
+
+Grepped src/ and supabase/functions/ for all 7 names. Zero hits in either
+location for any of the 7, including weimi_product_alias. Per the spec's
+own branch for that table (RLS + authenticated SELECT only if read by the
+app, else revoke like the others), weimi_product_alias is revoked, not
+RLS-gated.
+
+Checked pg_class.relacl directly before writing the fix, not just
+has_table_privilege: authenticated held full read-write-delete-truncate
+(arwdDxtm) on all 7 as a direct grant, not through PUBLIC. Worse than the
+spec's own description (anon SELECT only) and a live Article 3 exposure in
+its own right. REVOKE ALL FROM anon, authenticated closes both in one
+statement. No DROP, per the explicit instruction.
+
+Applied as 20261006090058_prd139c_2_revoke_dead_tables.sql. Rollback at
+supabase/rollbacks/prd139c_2_rollback.sql.
+
+Verified post-apply: anon_select, authenticated_select, and
+authenticated_insert all false on all 7 tables.
