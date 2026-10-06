@@ -100,6 +100,19 @@ export default function DispatchingDetailPage() {
   const [machine, setMachine] = useState<MachineInfo | null>(null);
   const [lines, setLines] = useState<DispatchLine[]>([]);
   const [invWarnings, setInvWarnings] = useState<Record<string, string>>({});
+  // PRD-139b Item 7: confirmed-write counts and failure list for the Save summary
+  // banner, built from actual RPC results during the save loop below -- never from
+  // local line.action intent alone.
+  const [confirmedAdded, setConfirmedAdded] = useState(0);
+  const [confirmedReturned, setConfirmedReturned] = useState(0);
+  const [saveFailures, setSaveFailures] = useState<
+    {
+      dispatchId: string;
+      shelfCode: string | null;
+      productName: string;
+      message: string;
+    }[]
+  >([]);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [saved, setSaved] = useState(false);
@@ -655,6 +668,10 @@ export default function DispatchingDetailPage() {
       p_quantity: extraReturnQty,
       p_expiry_date: extraReturnExpiry,
       p_reason: `Multi-variant split: ${extraReturnQty}u ${extraReturnSelected.boonz_product_name} (exp ${extraReturnExpiry})`,
+      // PRD-139b Item 7: the RPC defaults p_dispatch_date to CURRENT_DATE (UTC) when
+      // omitted. Pass the Dubai date explicitly so a line added after 20:00 UTC
+      // isn't silently dated tomorrow.
+      p_dispatch_date: getDubaiDate(),
     });
     if (error) {
       alert(`Could not add return row: ${error.message}`);
@@ -739,6 +756,17 @@ export default function DispatchingDetailPage() {
     setSaving(true);
     const supabase = createClient();
     let totalReturnDelta = 0;
+    // PRD-139b Item 7: built from actual RPC results this run, never from local
+    // line.action intent. The Save summary banner reads these, not addedCount/
+    // returnedCount, so it can never show green "all added" when something failed.
+    let addedOk = 0;
+    let returnedOk = 0;
+    const failures: {
+      dispatchId: string;
+      shelfCode: string | null;
+      productName: string;
+      message: string;
+    }[] = [];
 
     for (const line of lines) {
       if (line.action === "added") {
@@ -788,6 +816,7 @@ export default function DispatchingDetailPage() {
               "[Dispatch] line already received/confirmed:",
               line.dispatch_id,
             );
+            addedOk += 1;
           } else {
             console.error(`[Dispatch] ${rpcName} error:`, rpcErr);
             setInvWarnings((prev) => ({
@@ -795,12 +824,21 @@ export default function DispatchingDetailPage() {
               [line.dispatch_id]:
                 (isRemove ? "⚠ Remove failed: " : "⚠ Receive failed: ") + msg,
             }));
+            failures.push({
+              dispatchId: line.dispatch_id,
+              shelfCode: line.shelf_code,
+              productName: line.boonz_product_name ?? "Unknown product",
+              message: msg,
+            });
             continue;
           }
-        } else if (rpcData) {
-          const result = rpcData as { return_delta?: number | string };
-          const delta = Number(result.return_delta ?? 0);
-          if (delta > 0) totalReturnDelta += delta;
+        } else {
+          addedOk += 1;
+          if (rpcData) {
+            const result = rpcData as { return_delta?: number | string };
+            const delta = Number(result.return_delta ?? 0);
+            if (delta > 0) totalReturnDelta += delta;
+          }
         }
 
         // Comment isn't touched by the RPC; persist it separately if set.
@@ -830,6 +868,12 @@ export default function DispatchingDetailPage() {
             [line.dispatch_id]:
               "⚠ Return failed: " + (rpcErr.message ?? "unknown error"),
           }));
+          failures.push({
+            dispatchId: line.dispatch_id,
+            shelfCode: line.shelf_code,
+            productName: line.boonz_product_name ?? "Unknown product",
+            message: rpcErr.message ?? "unknown error",
+          });
           continue;
         }
 
@@ -846,6 +890,12 @@ export default function DispatchingDetailPage() {
                 ((rpcData as { message?: string } | null)?.message ??
                   "see the office");
           setInvWarnings((prev) => ({ ...prev, [line.dispatch_id]: why }));
+          failures.push({
+            dispatchId: line.dispatch_id,
+            shelfCode: line.shelf_code,
+            productName: line.boonz_product_name ?? "Unknown product",
+            message: why,
+          });
           continue;
         }
         if (status === "already_returned") {
@@ -854,7 +904,9 @@ export default function DispatchingDetailPage() {
             ...prev,
             [line.dispatch_id]: "ℹ Already returned earlier — no change",
           }));
+          returnedOk += 1;
         } else {
+          returnedOk += 1;
           const returnQty = Number(
             (rpcData as { return_qty?: number | string } | null)?.return_qty ??
               0,
@@ -894,9 +946,14 @@ export default function DispatchingDetailPage() {
     // caching beyond the per-line local state above.
     await fetchData();
 
+    setConfirmedAdded(addedOk);
+    setConfirmedReturned(returnedOk);
+    setSaveFailures(failures);
     setSaving(false);
     setSaved(true);
-    setEditingAfterSave(false);
+    // PRD-139b Item 7: a failed line must stay editable with Save enabled for
+    // retry, not get locked read-only by the post-save isReadOnly gate.
+    setEditingAfterSave(failures.length > 0);
   }
 
   if (loading) {
@@ -1217,15 +1274,43 @@ export default function DispatchingDetailPage() {
         </div>
       )}
 
-      {/* ── Save summary (after save) ── */}
-      {saved && (
+      {/* ── Save summary (after save) ──
+          PRD-139b Item 7: built from confirmedAdded/confirmedReturned/saveFailures,
+          the actual RPC results from the save loop, never from local line.action
+          intent (addedCount/returnedCount). A red banner listing each failed line
+          always shows when something failed; the green "all added" banner only
+          shows when nothing did. */}
+      {saved && saveFailures.length > 0 && (
+        <div className="mb-4 rounded-xl border border-red-300 bg-red-50 px-4 py-3 text-sm dark:border-red-800 dark:bg-red-950/30">
+          <p className="font-medium text-red-700 dark:text-red-400">
+            ⚠ {saveFailures.length} line
+            {saveFailures.length === 1 ? "" : "s"} failed to save
+          </p>
+          <ul className="mt-1 space-y-0.5 text-xs text-red-600 dark:text-red-300">
+            {saveFailures.map((f) => (
+              <li key={f.dispatchId}>
+                {f.productName}
+                {f.shelfCode ? ` (${f.shelfCode})` : ""}: {f.message}
+              </li>
+            ))}
+          </ul>
+          {(confirmedAdded > 0 || confirmedReturned > 0) && (
+            <p className="mt-1 text-xs text-red-600 dark:text-red-300">
+              {confirmedAdded} added and {confirmedReturned} returned saved
+              successfully. Fix the line{saveFailures.length === 1 ? "" : "s"}{" "}
+              above and Save again.
+            </p>
+          )}
+        </div>
+      )}
+      {saved && saveFailures.length === 0 && (
         <div className="mb-4 rounded-xl bg-green-50 px-4 py-3 text-sm dark:bg-green-950/30">
           <span className="font-medium text-green-700 dark:text-green-400">
-            ✓ {addedCount} added to machine
+            ✓ {confirmedAdded} added to machine
           </span>
-          {returnedCount > 0 && (
+          {confirmedReturned > 0 && (
             <span className="ml-3 font-medium text-amber-700 dark:text-amber-400">
-              ↩ {returnedCount} returned to warehouse
+              ↩ {confirmedReturned} returned to warehouse
             </span>
           )}
         </div>

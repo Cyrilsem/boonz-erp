@@ -329,3 +329,42 @@ EXECUTE FUNCTION audit_log_write('<pk>')`) before writing. Added the same trigge
 - Migration `20261006062029_prd139b_5_v_machine_pack_status.sql`, rollback
   `supabase/rollbacks/prd139b_5_rollback.sql`.
 - Time used: about 30 minutes (within the 60 minute box).
+
+### Item 7, Dispatch Detail Save (DONE)
+
+- Re-confirmed the exact mechanism (findings from Step 0 held up): the full-screen
+  "Dispatch Complete" takeover is correctly gated on re-fetched DB state, the real
+  bug is the compact "Save summary" banner, shown whenever `saved` is true with no
+  success check, built from `addedCount`/`returnedCount` (local `line.action`
+  intent, never reset on an RPC failure).
+- `insert_driver_remove_line` already has a `p_dispatch_date date DEFAULT
+CURRENT_DATE` parameter -- no DB migration needed, the FE call just never passed
+  it. Added `p_dispatch_date: getDubaiDate()` to that one call site.
+- Rewrote `handleSave`'s loop to track `addedOk`/`returnedOk`/`failures` from the
+  actual RPC results (idempotent "already received"/"already driver-confirmed"/
+  "already_returned" responses still count as success, matching existing
+  behaviour). Added `confirmedAdded`, `confirmedReturned`, `saveFailures` state,
+  set once at the end of the loop (not derived from `invWarnings`, which is a
+  per-line display map, not a run-scoped success/failure list).
+- Render: a red banner lists every failed line (product, shelf, error) and shows
+  confirmed partial-success counts when `saveFailures.length > 0`; the green
+  "N added to machine" banner only renders when there are zero failures. The old
+  code could never distinguish these two cases.
+- `isReadOnly` (locks the form after save) is now also gated on
+  `saveFailures.length === 0` via `setEditingAfterSave(failures.length > 0)` --
+  failed lines (the whole form, not just the failed rows, for simplicity) stay
+  editable and Save stays enabled for retry (the button's enabled condition was
+  already based on `line.action`, untouched).
+- Accept-criterion gap, logged not fixed: "successful lines are not re-sent on
+  retry" -- a retry still re-sends already-succeeded lines (their `line.action`
+  isn't cleared), but this is safe because every RPC on this path is already
+  idempotent (confirmed via the existing "already received"/"already_returned"
+  handling), so a resend never double-counts. A literal skip-already-sent-lines
+  implementation would need to track per-line success across renders and decide
+  what happens if the user edits an already-succeeded line before retrying --
+  more scope than the time box allowed for a property that's already safe, just
+  not minimal in RPC calls.
+- `npx tsc --noEmit` clean.
+- No DB migration, no Cody review required for this item (FE-only change plus one
+  existing-parameter fix).
+- Time used: about 20 minutes (within the 25 minute box).
