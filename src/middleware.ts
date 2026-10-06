@@ -13,6 +13,51 @@ import {
 const AUTH_TIMEOUT_MS = 5000;
 const PROFILE_TIMEOUT_MS = 3000;
 
+// PRD-139b Item 3: server-side per-route gate for /field. The client-side checks in
+// each page (e.g. field/config/page.tsx's CONFIG_ROLES) are UX only, not security —
+// this is the actual enforcement. Most-specific prefix wins; an exact match on "/field"
+// itself is allowed for every field-accessible role; anything under /field that matches
+// none of the rules below falls back to admins-only.
+const FIELD_ADMIN_ROLES = ["operator_admin", "manager", "superadmin"];
+const FIELD_WAREHOUSE_ROLES = ["warehouse", ...FIELD_ADMIN_ROLES];
+const FIELD_ALL_ROLES = ["field_staff", ...FIELD_WAREHOUSE_ROLES];
+
+const FIELD_ROUTE_RULES: { prefix: string; roles: readonly string[] }[] = [
+  // Admins-only (checked first: most specific prefixes under /field/config)
+  { prefix: "/field/config/sims", roles: FIELD_ADMIN_ROLES },
+  { prefix: "/field/config/suppliers", roles: FIELD_ADMIN_ROLES },
+  // warehouse + admins
+  { prefix: "/field/packing", roles: FIELD_WAREHOUSE_ROLES },
+  { prefix: "/field/shelf-view", roles: FIELD_WAREHOUSE_ROLES },
+  { prefix: "/field/dispatching/pick", roles: FIELD_WAREHOUSE_ROLES },
+  { prefix: "/field/not-filled", roles: FIELD_WAREHOUSE_ROLES },
+  { prefix: "/field/capture", roles: FIELD_WAREHOUSE_ROLES },
+  { prefix: "/field/orders", roles: FIELD_WAREHOUSE_ROLES },
+  { prefix: "/field/receiving", roles: FIELD_WAREHOUSE_ROLES },
+  { prefix: "/field/inventory", roles: FIELD_WAREHOUSE_ROLES },
+  { prefix: "/field/expiry", roles: FIELD_WAREHOUSE_ROLES },
+  // catches /field/config and every other config sub-route (boonz-products,
+  // pod-products, product-mapping, product-naming, machines) not already matched above
+  { prefix: "/field/config", roles: FIELD_WAREHOUSE_ROLES },
+  // field_staff + warehouse + admins
+  { prefix: "/field/pickup", roles: FIELD_ALL_ROLES },
+  { prefix: "/field/dispatching", roles: FIELD_ALL_ROLES },
+  { prefix: "/field/trips", roles: FIELD_ALL_ROLES },
+  // all roles
+  { prefix: "/field/profile", roles: FIELD_ALL_ROLES },
+  { prefix: "/field/tasks", roles: FIELD_ALL_ROLES },
+  { prefix: "/field/pod-inventory", roles: FIELD_ALL_ROLES },
+];
+
+function isFieldRouteAllowed(path: string, role: string): boolean {
+  if (path === "/field") return true;
+  for (const rule of FIELD_ROUTE_RULES) {
+    if (path.startsWith(rule.prefix)) return rule.roles.includes(role);
+  }
+  // Unknown /field route: admins only.
+  return FIELD_ADMIN_ROLES.includes(role);
+}
+
 function withTimeout<T>(
   p: PromiseLike<T>,
   ms: number,
@@ -196,6 +241,9 @@ export async function middleware(request: NextRequest) {
   // Block: /app, /portal, /chat → redirect to /field
   if (role === "field_staff" || role === "warehouse") {
     if (onApp || onPortal || onChat) {
+      return NextResponse.redirect(new URL("/field", request.url));
+    }
+    if (onField && !isFieldRouteAllowed(path, role)) {
       return NextResponse.redirect(new URL("/field", request.url));
     }
     return supabaseResponse;

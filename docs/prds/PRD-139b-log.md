@@ -167,3 +167,39 @@ server-side, UTC not Dubai.
 - Time used: about 75 minutes (over the 60 minute box; the investigation surfaced
   three distinct bug classes across 15 functions rather than one uniform fix, which
   took longer to verify correctly than a single find-and-replace would have).
+
+### Item 3, per-route gate in /field middleware (DONE)
+
+- `src/middleware.ts` confirmed to only check the `/field` prefix broadly (field_staff
+  and warehouse pass straight through to any `/field/*` subpath). `field/config/page.tsx`
+  has a client-side `CONFIG_ROLES = [operator_admin, superadmin, manager, warehouse]`
+  check, UX only.
+- Added `FIELD_ROUTE_RULES` (most-specific-prefix-wins) and `isFieldRouteAllowed(path,
+role)` in `src/middleware.ts`, called from the field_staff/warehouse branch (the
+  operator_admin/manager/superadmin branch needs no gate: admins are included in every
+  tier by construction, so they always pass). Exact route map as specified: admins-only
+  for `/field/config/sims` and `/field/config/suppliers`; warehouse+admins for
+  `/field/packing`, `/field/shelf-view`, `/field/dispatching/pick`, `/field/not-filled`,
+  `/field/capture`, `/field/orders`, `/field/receiving`, `/field/inventory`,
+  `/field/expiry`, `/field/config` (catches the remaining sub-routes); field_staff
+  +warehouse+admins for `/field/pickup`, `/field/dispatching`, `/field/trips`; all roles
+  for `/field` itself, `/field/profile`, `/field/tasks`, `/field/pod-inventory`; unknown
+  `/field/*` routes default to admins-only.
+- Home cards: read `field/page.tsx` in full (3 role-specific render components: a
+  warehouse-labelled one, a field_staff one, and a combined warehouse/admin one).
+  Grepped every `href="/field...` in the file and checked each against the new route
+  map. The field_staff render block only links to `/field/trips`, `/field/pickup`,
+  `/field/dispatching`, `/field/tasks`, `/field/pod-inventory` -- all allowed for
+  field_staff under the new gate. The warehouse/admin blocks link to
+  packing/capture/orders/receiving/inventory/config, all allowed for those roles. No
+  card currently links a role to a page it cannot open -- no FE change needed, the
+  existing Home page was already correctly scoped.
+- `npx tsc --noEmit` clean after the middleware edit.
+- Smoke test: traced the pure routing function by hand against the PRD's exact accept
+  criteria (no DB involved, deterministic): field_staff on `/field/capture`,
+  `/field/orders/new`, `/field/inventory`, `/field/config` all redirect (none of those
+  prefixes list field_staff); warehouse on `/field/config/sims` and
+  `/field/config/suppliers` redirects (admins-only rule); operator_admin matches every
+  rule's role list so it never redirects. A live browser click-through is deferred to
+  the Phase 5 app smoke test where all roles are walked together.
+- Time used: about 20 minutes (within the 30 minute box).
