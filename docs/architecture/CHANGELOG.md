@@ -3701,7 +3701,7 @@ of `src/`, not assumed): `preferred_language`, `onboarding_complete`, `pages_tou
 `handle_new_user()`, a SECURITY DEFINER trigger on `auth.users` unaffected by the revoke). RLS
 policies on `user_profiles` are untouched (CLAUDE.md constraint). One self-caught bug during live
 testing: the first version of the UPDATE branch omitted the `auth.uid() IS NULL` bypass the INSERT
-branch already had, which would have blocked the postgres-SQL-editor manual-fix path — caught by a
+branch already had, which would have blocked the postgres-SQL-editor manual-fix path, caught by a
 rolled-back-transaction test before being reported done, fixed in a same-window follow-up
 migration. Verified live: field_staff self-promotion blocked, `preferred_language` update still
 works, postgres-SQL-editor manual role fix still works, `check_ambiguous_function_overloads()`
