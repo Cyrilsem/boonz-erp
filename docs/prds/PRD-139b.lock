@@ -1,0 +1,7 @@
+timestamp: 2026-10-06T05:03:13Z
+hostname: Cyrils-MacBook-Air.local
+pid: 80427
+loop: PRD-139b ONE LOOP
+hard_stop_utc: 2026-10-06T12:03:13Z
+hard_stop_dubai: 2026-10-06 16:03 (7 hours after start; the 05:45 Dubai absolute-clock
+  option is the next morning, 2026-10-07, so the 7-hour cap is the binding one)
