@@ -3696,7 +3696,7 @@ BEFORE INSERT OR UPDATE trigger blocking any `role` change unless `service_role`
 (matching CS's established direct-SQL-editor manual-fix workflow, which runs as `postgres` with no
 JWT claims set) `auth.uid() IS NULL`; column-level `GRANT UPDATE` to `authenticated` replacing the
 table-wide grant, restricted to the three columns actually written client-side (confirmed via grep
-of `src/`, not assumed): `preferred_language`, `onboarding_complete`, `pages_toured` — `role` and
+of `src/`, not assumed): `preferred_language`, `onboarding_complete`, `pages_toured`, `role` and
 `id` excluded. `INSERT` revoked entirely from `authenticated` (the only writer is
 `handle_new_user()`, a SECURITY DEFINER trigger on `auth.users` unaffected by the revoke). RLS
 policies on `user_profiles` are untouched (CLAUDE.md constraint). One self-caught bug during live
