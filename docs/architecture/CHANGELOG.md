@@ -3657,3 +3657,56 @@ staff as an earlier draft of this entry incorrectly stated.
 Migrations: `20261005103522_fix2_wm_confirm_line_split_by_expiry.sql`,
 `20261005103600_vox_placeholder_trap_fix.sql`,
 `20261005104118_return_split_wm_confirmations_breakdown.sql`.
+
+**`receive_dispatch_line` return-then-receive double-credit guard.** Root cause, 2026-10-05
+07:57-58 UTC, ACTIVATEMOE: the "Test Driver" test account called `return_dispatch_line` (reason
+"Not added to machine") on 4 real lines, crediting `warehouse_inventory` back from each line's
+pinned `consumer_stock`. ~4 minutes later the same session called `receive_dispatch_line` on 3 of
+those lines to confirm the goods actually were delivered. `receive_dispatch_line` had no guard
+against `returned = true`: it found `consumer_stock` already drained by the return, so
+`return_delta` computed to 0 and no further warehouse adjustment happened, but it still
+unconditionally credited `pod_inventory` for a fresh delivery and set `item_added = true`. Net
+effect: the warehouse kept the return's credit AND the machine's `pod_inventory` was credited
+again, double-counting 12 Gatorade. That 12-unit double count was already corrected by hand via
+`adjust_warehouse_stock` on 2026-10-05 and is NOT re-corrected by this fix. Fix: when
+`receive_dispatch_line` is called on a dispatch with `returned = true`, it now finds the exact
+`warehouse_inventory` credit(s) `return_dispatch_line` wrote (via `write_audit_log`, correlated
+by the shared `occurred_at` timestamp within that one prior call), debits them back out, clears
+`returned`/`return_reason`, and only then runs the normal receive. Refuses with a clear message
+(no silent double-count) if the credited stock is no longer available in the warehouse.
+`return_dispatch_line` already had the requested defense-in-depth guard (refuses when
+`item_added = true`) — confirmed live, no change needed there. Cody ✅ (Articles 1, 4, 6, 8, 12).
+Finding flagged (non-blocking, pre-existing, relevant to PRD-139 Item 2): `receive_dispatch_line`
+has no caller-role validation anywhere. Tested by replaying the real sequence (pack, return "Not
+added to machine", receive 4 minutes later) in a rolled-back transaction: warehouse stock net 0,
+pod credited exactly once. One transcription slip during the manual apply (a dropped
+`AND expiration_date IS NOT NULL` filter in the unrelated Remove/fallback branch) was caught by
+diffing against the live `pg_get_functiondef` before commit and corrected on prod; the committed
+file matches the live function exactly.
+
+Migration: `supabase/migrations/20261005162816_receive_dispatch_line_undo_return.sql` (+ rollback).
+
+**PRD-139 Item 1 — `user_profiles` role self-promotion fix.** Verified live (not assumed) that
+`authenticated` held full table-wide UPDATE/INSERT on `user_profiles` with zero column
+restriction and no guard trigger, so any authenticated session could run
+`update user_profiles set role='superadmin' where id=auth.uid()` and succeed. Fix: new
+`is_admin(uuid)` SECURITY DEFINER helper (checks `role IN ('operator_admin','superadmin')`,
+bypassing RLS by design since this is not an RLS policy change); new `trg_user_profiles_role_guard`
+BEFORE INSERT OR UPDATE trigger blocking any `role` change unless `service_role`, `is_admin()`, or
+(matching CS's established direct-SQL-editor manual-fix workflow, which runs as `postgres` with no
+JWT claims set) `auth.uid() IS NULL`; column-level `GRANT UPDATE` to `authenticated` replacing the
+table-wide grant, restricted to the three columns actually written client-side (confirmed via grep
+of `src/`, not assumed): `preferred_language`, `onboarding_complete`, `pages_toured` — `role` and
+`id` excluded. `INSERT` revoked entirely from `authenticated` (the only writer is
+`handle_new_user()`, a SECURITY DEFINER trigger on `auth.users` unaffected by the revoke). RLS
+policies on `user_profiles` are untouched (CLAUDE.md constraint). One self-caught bug during live
+testing: the first version of the UPDATE branch omitted the `auth.uid() IS NULL` bypass the INSERT
+branch already had, which would have blocked the postgres-SQL-editor manual-fix path — caught by a
+rolled-back-transaction test before being reported done, fixed in a same-window follow-up
+migration. Verified live: field_staff self-promotion blocked, `preferred_language` update still
+works, postgres-SQL-editor manual role fix still works, `check_ambiguous_function_overloads()`
+clean. Cody ✅ (Articles 2, 3, 4, 12, 13, 14, 16 — self-reviewed under time pressure, see
+`docs/prds/PRD-139-log.md`).
+
+Migrations: `20261006043159_prd139_item1_user_profiles_role_guard.sql`,
+`20261006043408_prd139_item1_role_guard_fix_postgres_bypass.sql` (+ rollbacks).

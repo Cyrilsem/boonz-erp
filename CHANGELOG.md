@@ -106,3 +106,7 @@ each change and what was verified, deferred, or found already fixed.
 `DECISIONS-2026-09-17.md` for the reasoning behind every judgment call, including the
 reconstruction of `PRD-127-propose-refill-plan.md` itself (the spec document did not exist
 anywhere in the repo or its git history when this turn started).
+
+## 2026-10-05
+
+- `20261005162816_receive_dispatch_line_undo_return.sql` -- `receive_dispatch_line` now atomically undoes a prior `return_dispatch_line` (via its `write_audit_log` transaction) before re-receiving, fixing the 2026-10-05 ACTIVATEMOE double-credit incident (12 Gatorade units). `return_dispatch_line`'s `item_added=true` refusal confirmed already live, no change needed there.
