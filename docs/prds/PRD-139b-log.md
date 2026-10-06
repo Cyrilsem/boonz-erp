@@ -63,3 +63,49 @@ server-side, UTC not Dubai.
 
 (Each item's entry appended below as it is worked, in the PRD's specified order:
 2A, 2B, 3, 4, 6, 5, 7, 8, 9, 10, Phase 5 gates.)
+
+### Item 2A, close anon EXECUTE on SECURITY DEFINER functions (DONE)
+
+- Allowlist proof (grep of src/ and supabase/functions/): empty. Every browser `.rpc()`
+  call happens after login (role authenticated). The VOX API routes
+  (commercial-lines, commercial, consumers, returns) use `SUPABASE_SERVICE_ROLE_KEY`,
+  not anon. `api/machines/repurpose/route.ts` uses the anon key but makes no direct
+  `.rpc()` call, it only forwards the caller's own JWT to the `repurpose-machine` edge
+  function via `functions.invoke`, which itself verifies that JWT and then calls the
+  actual RPC on a `SUPABASE_SERVICE_ROLE_KEY` client. `evaluate-lifecycle` edge function
+  is service_role only, no anon path.
+- Snapshot of all 321 anon-executable SECURITY DEFINER functions before the revoke, one
+  per line (`schema.name(args)`), generated from the live query via `jq` (no hand typing):
+  `supabase/rollbacks/prd139b_2a_anon_list.txt`.
+- Cody: Verdict Approve. Articles checked 1, 3, 4, 12. Finding logged, not fixed (out of
+  scope, separate issue): `agenda_items` has `anon` SELECT at the table level
+  (independent of this item), and two of the 321 functions
+  (`current_app_role()`, `has_boonz_tracker_access()`) are referenced inside that table's
+  RLS policies. After the revoke, an anon query against that table for
+  `category='Boonz'` rows gets a permission-denied error instead of a silently empty
+  result. Not a regression (fail-closed either way), flagged for a future PRD to tighten
+  the table grant itself.
+- Migration `20261006051545_prd139b_2a_revoke_anon_definer.sql`: a `DO` block over
+  `pg_proc` (schema public, `prosecdef`, `has_function_privilege('anon', oid, 'EXECUTE')`)
+  revoking from `anon, PUBLIC` and granting to `authenticated, service_role`; then
+  `ALTER DEFAULT PRIVILEGES ... REVOKE EXECUTE ON FUNCTIONS FROM anon, PUBLIC` (tried for
+  roles `postgres` and `supabase_admin` explicitly, with insufficient_privilege/
+  undefined_object caught and logged via RAISE NOTICE rather than failing the migration,
+  then for the executing role with no FOR ROLE clause).
+- Rollback `supabase/rollbacks/prd139b_2a_rollback.sql`: re-grants EXECUTE to anon on
+  exactly the 321 snapshotted functions, generated the same way (no hand typing). Does
+  not touch the authenticated/service_role grants or the default-privileges change.
+- Verified live after apply: anon-executable-definer count is 0 (was 321).
+  `check_ambiguous_function_overloads()` returned `ambiguous_overload_count: 0`.
+  `has_function_privilege` checked for all 15 named writers from the PRD's Item 2B list
+  (`pack_dispatch_line`, `repack_machine`, `skip_dispatch_line`, `confirm_machine_packed`,
+  `edit_dispatch_qty`, `mark_picked_up`, `receive_dispatch_line`, `return_dispatch_line`,
+  `driver_confirm_remove`, `record_actual_refill`, `wm_confirm_line`, `cancel_po_line`,
+  `set_product_mapping_splits`, `set_machine_status`, `repurpose_machine`): all
+  `authenticated_ok = true`, all `anon_still_open = false`.
+- Smoke test: as `authenticated` impersonating field_staff/warehouse/operator_admin
+  (rolled-back transaction, `set_config('request.jwt.claims', ...)`),
+  `v_machine_pack_status` and `v_wm_confirmations` reads succeeded for all three roles.
+  Full click-through app smoke test deferred to the Phase 5 gates section, where all
+  roles are walked together.
+- Time used: about 35 minutes (within the 45 minute box).
