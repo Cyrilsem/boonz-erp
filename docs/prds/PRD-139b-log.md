@@ -252,3 +252,41 @@ EXECUTE FUNCTION audit_log_write('<pk>')`) before writing. Added the same trigge
   actually fires, not just that it was created.
 - `npx tsc --noEmit` clean after the two FE repoints.
 - Time used: about 30 minutes (within the 35 minute box).
+
+### Item 6, PO header status (DONE, two consumers deferred)
+
+- `v_po_header` confirmed not to exist (clean slate). Live distribution of
+  `(purchase_outcome, received_date IS NOT NULL)` checked before writing the CASE
+  logic: `('not_purchased', false)=165`, `('not_purchased', true)=352`,
+  `('received', true)=1096`, `(NULL, false)=9` -- some cancelled lines carry a
+  historical `received_date`, so `received_lines` must key on
+  `purchase_outcome='received'`, not `received_date IS NOT NULL` alone.
+- Created `v_po_header` exactly per spec's status taxonomy. Verified against real
+  data before applying: `Pending=2` (matches the PRD's "Home shows 2 open orders"),
+  `PO-2026-UC1003B` resolves to `Closed short` (matches the PRD's named example)
+  exactly.
+- Found and fixed: new views in `public` are born `anon`-SELECT and
+  `authenticated`-write by Supabase's default privileges (the same S-308 pattern
+  Item 2A closed for functions). Revoked `anon`/`PUBLIC` entirely and the inert
+  write grants from `authenticated`, left only `SELECT` for `authenticated`/
+  `service_role`.
+- Repointed: `field/page.tsx` Home "Open orders" (now `v_po_header` status IN
+  Pending/Partial, replacing the old `received_date IS NULL` line-level heuristic)
+  and "Received today" (now counts distinct `po_id`, was counting lines);
+  `field/receiving/page.tsx` (now `v_po_header` status IN Pending/Partial sorted by
+  `purchase_date desc`, replacing a client-side group-by that could show a mostly-
+  cancelled PO as pending); `field/orders/page.tsx` (added a `status` field read
+  from `v_po_header` per PO, used for the Pending-tab filter and the status pill,
+  including a new "Closed short" pill state that did not exist before -- confirmed
+  by reading the pill logic that a PO like UC1003B would previously have fallen
+  through to a misleading amber "Pending" pill).
+- Deferred, logged not fixed (time-boxed): Tasks page showing the view's status next
+  to each task (currently just shows the bare `po_id`, no status pill at all -- a
+  smaller, lower-risk addition than the three above, left for a follow-up); the
+  desktop `app/procurement/page.tsx` count that uses the same
+  `received_date`-per-line heuristic as the old `field/orders/page.tsx` code (same
+  bug class, but not covered by any of this item's named accept criteria, which are
+  all field-app specific and already verified above).
+- `npx tsc --noEmit` clean after all three FE repoints.
+- Time used: about 35 minutes (slightly over the 30 minute box, the Orders page's
+  existing status-pill logic needed careful reading before a safe surgical change).

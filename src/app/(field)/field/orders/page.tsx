@@ -35,6 +35,9 @@ interface POGroup {
   total_ordered: number;
   total_received: number;
   received_date: string | null;
+  // PRD-139b Item 6: canonical status from v_po_header, the single source for PO
+  // header status (Cancelled / Pending / Partial / Closed short / Received).
+  status: string;
 }
 
 interface POLineDetail {
@@ -192,6 +195,7 @@ export default function OrdersPage() {
           total_ordered: line.ordered_qty ?? 0,
           total_received: lineReceivedQty,
           received_date: line.received_date,
+          status: "Pending",
         });
       }
     }
@@ -199,6 +203,24 @@ export default function OrdersPage() {
     const result = Array.from(grouped.values()).sort((a, b) =>
       b.purchase_date.localeCompare(a.purchase_date),
     );
+
+    // PRD-139b Item 6: pull the canonical status per PO from v_po_header rather than
+    // re-deriving it from received_date/open_lines here (that heuristic mis-classified
+    // "Closed short" POs, e.g. a mostly-cancelled PO with a few received lines, as
+    // "Pending").
+    const { data: headers } = await supabase
+      .from("v_po_header")
+      .select("po_id, status")
+      .in(
+        "po_id",
+        result.map((o) => o.po_id),
+      );
+    const statusByPoId = new Map(
+      (headers ?? []).map((h) => [h.po_id, h.status as string]),
+    );
+    for (const o of result) {
+      o.status = statusByPoId.get(o.po_id) ?? "Pending";
+    }
 
     setOrders(result);
 
@@ -339,10 +361,11 @@ export default function OrdersPage() {
     );
   }
 
-  // Filter for pending tab: unreceived OR collected-but-not-WH-received
+  // Filter for pending tab: PRD-139b Item 6, status from v_po_header (Pending or
+  // Partial), not the old received_date/isFullyCancelled heuristic.
   const filtered =
     tab === "pending"
-      ? orders.filter((o) => !o.received_date && !isFullyCancelled(o))
+      ? orders.filter((o) => o.status === "Pending" || o.status === "Partial")
       : orders.slice(0, 30);
 
   if (loading) {
@@ -432,27 +455,33 @@ export default function OrdersPage() {
                       </div>
                     </div>
                     <div className="shrink-0 flex flex-col items-end gap-2">
-                      {order.received_date ? (
-                        order.total_received < order.total_ordered ? (
-                          <span className="rounded-full bg-amber-100 px-2.5 py-0.5 text-xs font-medium text-amber-800 dark:bg-amber-900 dark:text-amber-200">
-                            Partial · {order.total_received}/
-                            {order.total_ordered} units
-                          </span>
-                        ) : (
-                          <span className="rounded-full bg-green-100 px-2.5 py-0.5 text-xs font-medium text-green-800 dark:bg-green-900 dark:text-green-200">
-                            Received {formatDate(order.received_date)}
-                          </span>
-                        )
+                      {order.status === "Received" ? (
+                        <span className="rounded-full bg-green-100 px-2.5 py-0.5 text-xs font-medium text-green-800 dark:bg-green-900 dark:text-green-200">
+                          Received{" "}
+                          {order.received_date
+                            ? formatDate(order.received_date)
+                            : ""}
+                        </span>
+                      ) : order.status === "Closed short" ? (
+                        <span className="rounded-full bg-orange-100 px-2.5 py-0.5 text-xs font-medium text-orange-800 dark:bg-orange-900 dark:text-orange-200">
+                          Closed short · {order.total_received}/
+                          {order.total_ordered} units
+                        </span>
+                      ) : order.status === "Cancelled" ? (
+                        <span className="rounded-full bg-neutral-200 px-2.5 py-0.5 text-xs font-medium text-neutral-600 dark:bg-neutral-700 dark:text-neutral-300">
+                          Cancelled
+                        </span>
+                      ) : order.status === "Partial" ? (
+                        <span className="rounded-full bg-amber-100 px-2.5 py-0.5 text-xs font-medium text-amber-800 dark:bg-amber-900 dark:text-amber-200">
+                          Partial · {order.total_received}/{order.total_ordered}{" "}
+                          units
+                        </span>
                       ) : (
                         <>
                           {/* B-6: show collection state from driver_tasks */}
                           {task?.status === "collected" ||
                           task?.status === "acknowledged" ? (
                             <CollectionBadge task={task} />
-                          ) : isFullyCancelled(order) ? (
-                            <span className="rounded-full bg-neutral-200 px-2.5 py-0.5 text-xs font-medium text-neutral-600 dark:bg-neutral-700 dark:text-neutral-300">
-                              Cancelled
-                            </span>
                           ) : (
                             <span className="rounded-full bg-amber-100 px-2.5 py-0.5 text-xs font-medium text-amber-800 dark:bg-amber-900 dark:text-amber-200">
                               Pending

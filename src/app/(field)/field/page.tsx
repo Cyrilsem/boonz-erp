@@ -1112,7 +1112,7 @@ export default function FieldPage() {
           { data: openPOData },
           { count: activeInvCount },
           { count: expiryWeekCount },
-          { count: receivedTodayCount },
+          { data: receivedTodayData },
           { data: lastControlRows },
           { data: openTasksData },
           { count: pendingPodReviewsCount },
@@ -1148,9 +1148,9 @@ export default function FieldPage() {
             .gt("expiration_date", todayPlus7)
             .lte("expiration_date", todayPlus30),
           supabase
-            .from("purchase_orders")
+            .from("v_po_header")
             .select("po_id")
-            .is("received_date", null),
+            .in("status", ["Pending", "Partial"]),
           supabase
             .from("warehouse_inventory")
             .select("wh_inventory_id", { count: "exact", head: true })
@@ -1163,7 +1163,7 @@ export default function FieldPage() {
             .lte("expiration_date", todayPlus7),
           supabase
             .from("purchase_orders")
-            .select("po_id", { count: "exact", head: true })
+            .select("po_id")
             .eq("received_date", today),
           supabase
             .from("inventory_control_log")
@@ -1219,7 +1219,9 @@ export default function FieldPage() {
           expiring7: expiring7Count ?? 0,
           expiring30: expiring30Count ?? 0,
           openPOs: new Set(openPOData?.map((r) => r.po_id) ?? []).size,
-          receivedToday: receivedTodayCount ?? 0,
+          // PRD-139b Item 6: count distinct POs received today, not lines.
+          receivedToday: new Set(receivedTodayData?.map((r) => r.po_id) ?? [])
+            .size,
           activeItems: activeInvCount ?? 0,
           expiringWeek: expiryWeekCount ?? 0,
           lastControlDays,
