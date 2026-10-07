@@ -164,3 +164,51 @@ confirmed present). No PRD-139c lock or loop is currently active. Will
 re-pull before each item per the hard rule.
 
 ## Item log
+
+### Item 1: access catalog + resolver - BLOCKED (hard stop)
+
+Fully designed and self-reviewed (Cody voice, Articles 2/3/12 plus this
+loop's own stricter PUBLIC/anon revoke rule, all satisfied) before the
+hard stop was reached:
+
+- Five tables (access_areas, role_area_defaults, user_area_overrides,
+  access_audit_log, access_internal_functions), RLS enabled on all five,
+  SELECT-only policies, writes routed exclusively through four SECURITY
+  DEFINER functions.
+- access_areas seeded with the 22 app.* keys (sidebar_label copied byte for
+  byte from sidebar-nav.tsx) and 24 field.* keys (route_prefix matching the
+  real directory structure under src/app/(field)/field, confirmed by
+  listing it, not assumed) named in the spec. No NavItem or field directory
+  was found uncovered, so no additions were needed.
+- role_area_defaults seeded to reproduce the Step 0 baseline table exactly,
+  including the deliberate warehouse app.* = none choice over the sidebar's
+  vestigial hiddenByRole.warehouse entry (logged above under Step 0).
+- resolve_user_access(), has_area(), set_user_area_override(),
+  clear_user_area_override(), and view v_my_access, each ending with
+  REVOKE ALL ... FROM PUBLIC, anon; GRANT EXECUTE ... TO authenticated,
+  service_role, per this loop's own hard rule.
+- Rollback file drafted (drop the five tables, four functions, the view).
+
+One `apply_migration` call was attempted and returned a transient tool
+error ("Invalid or expired requestState"). Confirmed via direct query
+that nothing was applied (`information_schema.tables` has no
+`access_areas` row) - prod is untouched, zero live risk. Before retrying,
+checked wall-clock time and found this session's real elapsed time had
+reached 2026-10-07T05:57:51Z against a 2026-10-06T14:17:10Z start - past
+both this loop's hard-stop thresholds (7 hours, and the 05:45 Dubai
+cutoff, which the 7-hour cap reaches first from an 18:17 Dubai start).
+Stopping here rather than applying a first migration after the hard stop
+has already passed, per the loop's own rule to finish or roll back the
+item in flight and write the report rather than continue.
+
+The unapplied DRAFT migration and rollback files were deleted from the
+working tree (never committed; this repo's own convention is that a
+DRAFT_ file is renamed to its real timestamp only after a real apply, not
+committed as a draft). The full SQL is preserved in this log's design
+summary above and in the conversation transcript for the next PRD-140
+session to reuse directly rather than redesign from scratch.
+
+### Items 2 to 8 - BLOCKED (hard stop, not started)
+
+The hard stop was reached during Item 1, before any of these began.
+Nothing in the repo or in prod was touched for items 2 through 8.
