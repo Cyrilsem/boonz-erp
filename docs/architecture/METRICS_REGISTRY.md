@@ -1428,3 +1428,31 @@ inflation on one real fixture before the fix).
 `v_waste_by_sku_90d` (the expiry-waste KPI, sourced from `disposition_events.state='waste'`) -
 damage and expiry waste are different business events and must not be summed together. Excludes
 the `TEST - Product` fixture by name.
+
+## PRD-142a (2026-10-18) - strategic fact layer
+
+| Metric | Canonical object | Status | Known illegal copies to retire |
+| --- | --- | --- | --- |
+| **Machine era** (current era = era_end NULL; inception = first sale in the current era) | `machine_eras`, maintained by `sync_machine_eras()` | LIVE | `vox_machine_eras()` (PRD-138) stays for VOX statements; not a strategy source |
+| **Population** (partner vs boonz) | `strategy_population(venue_group, official_name)` | LIVE | inline copies in `get_product_velocity_ledger` (PRD-087/104) until 142b retires it |
+| **Net revenue ex-VAT** per machine-day | `fact_machine_daily.net_rev_exvat` | LIVE | none |
+| **COGS, cogs coverage, gross profit** per machine-day | `fact_machine_daily.cogs_aed / cogs_coverage_pct / gross_profit_aed` | LIVE | none |
+| **Baskets, card/cash** per machine-day | `fact_machine_daily.baskets / card_txns / cash_txns` | LIVE | none |
+| **Shelf sales** per machine, shelf, day | `fact_shelf_daily` | LIVE | none |
+| **Product sales** per pod, machine, day | `fact_product_machine_daily` | LIVE | none |
+| **Portfolio Map weekly series** | `fact_product_weekly` | LIVE | the Portfolio Map artifact's hand-run query (handover section 4) |
+
+All rebuilt nightly by `build_strategy_facts(p_from)` (03:30 Dubai, after `sync_machine_eras()`).
+
+Formulas:
+
+- Sales basis: `delivery_status IN ('Success','Successful')`, rows with `refunded_amount > 0 AND refunded_amount >= paid_amount` excluded, WH machines excluded (`venue_group = 'WH'` or `official_name` starting WH; `machines.is_test` does not exist), Dubai dates.
+- Net revenue ex-VAT = `(paid_amount - COALESCE(refunded_amount, 0)) / 1.05`. **Every sales_history row is treated as VAT-inclusive**: paid_amount is the consumer shelf price and UAE consumer prices include VAT. The Adyen bridge cannot confirm amounts (its `value_aed` is the pre-auth hold, 1 AED Boonz / 20 AED VOX) but confirms counts: on 2026-09-30 Adyen transactions equal sales baskets on every Boonz machine with a terminal (AMZ-1029 40/40, AMZ-1038 41/41, OMDBB 20/20, USH-1008 10/10). VAT-inclusive figures stay only in VOX statements.
+- Pod unit: `COALESCE(product_name_conventions.official_name, pod_product_name)` matched to `pod_products.pod_product_name` (99.4% of 2026 rows match).
+- COGS: `cost_amount` when > 0 (a line total), else `qty x` the split_pct-weighted unit cost of the pod's Active product_mapping rows on that machine (global default when the machine has none), each boonz product costed at the preferred supplier's `last_unit_price_aed`, else any supplier's, else `boonz_products.avg_cost`. Partner machines: COGS NULL.
+- Gross profit (Boonz): `net_rev x (1 - cogs / net_rev of costed rows)`, i.e. the costed rows' margin applied to all revenue; NULL when coverage is 0. Partner: `net_rev x refill_settings['partner_revenue_share'][venue_group]`, NULL until CS sets the share.
+- baskets = count distinct `split_part(internal_txn_sn, '_', 1)`. card_txns = `least(baskets, Adyen attributed transactions that machine-day)` on days the Adyen feed covers, NULL otherwise (classification_name and delivered_from are empty on current rows).
+- Shelf code = `strategy_shelf_code(goods_slot)`: `C-Ann` to `chr(65+C) || lpad(n+1, 2, '0')`; NULL for `itemN` basket lines. Size class = `strategy_size_class()` (physical layout, not capacity).
+- Weekly velocity basis: `fact_product_weekly.machines_selling` per Monday week, so velocity = units / machine-weeks with a sale (the Portfolio Map definition). Not comparable to the Performance tab's units / distinct machines / 8.
+
+Check (2026-10-18): Sep 2026 `fact_machine_daily.net_rev_exvat` = AED 79,872.74 = direct `sales_history` on the same basis (0.0000% difference), 9,672 units both sides. Boonz Sep COGS coverage 95.2% of units, gross margin 36.1%.

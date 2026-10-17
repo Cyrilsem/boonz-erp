@@ -47,13 +47,27 @@ Seed result: 49 eras on 42 machines. 32 single eras (`seed`), 10 open eras from 
 
 Evidence, machines with two eras:
 
-| Machine | Prior era (venue_label, dates) | Current era start |
-| --- | --- | --- |
-| SAP-2002-0000-R1 | WH1-2002-0000-W0, 2026-01-14 to 2026-10-09 | 2026-10-10 (relaunched_at) |
-| ACTIVATEMOE-2007-0000-B0 | LLFP-2007-0000-R0, 2026-02-13 to 2026-09-29 | 2026-09-30 |
+| Machine                  | Prior era (venue_label, dates)               | Current era start          |
+| ------------------------ | -------------------------------------------- | -------------------------- |
+| SAP-2002-0000-R1         | WH1-2002-0000-W0, 2026-01-14 to 2026-10-09   | 2026-10-10 (relaunched_at) |
+| ACTIVATEMOE-2007-0000-B0 | LLFP-2007-0000-R0, 2026-02-13 to 2026-09-29  | 2026-09-30                 |
 | ACTIVATEMCC-2005-0000-W0 | MPMCC-2005-0000-W0, 2026-04-23 to 2026-04-27 | 2026-04-28 (repurposed_at) |
-| NISSAN-0804-0000-L0 | Warehouse, 2026-01-01 to 2026-05-10 | 2026-05-11 |
-| VOXDFC-1001-0100-V0 | VOXMM-1001-0100-V0, 2025-05-26 to 2026-09-27 | 2026-09-28 |
-| VOXDFC-2006-0200-B0 | LLFP-2006-0000-C0, 2026-02-14 to 2026-09-27 | 2026-09-28 |
+| NISSAN-0804-0000-L0      | Warehouse, 2026-01-01 to 2026-05-10          | 2026-05-11                 |
+| VOXDFC-1001-0100-V0      | VOXMM-1001-0100-V0, 2025-05-26 to 2026-09-27 | 2026-09-28                 |
+| VOXDFC-2006-0200-B0      | LLFP-2006-0000-C0, 2026-02-14 to 2026-09-27  | 2026-09-28                 |
 
 Defaults chosen: relaunched_at is converted to a Dubai date before use (NISSAN relaunched 2026-05-10 20:36 UTC = 05-11 Dubai). Machines with no boundary start at LEAST(installation_date, first sale) so no sale falls outside an era (NOOK installed 11-29, first sale 11-28). "Live" = include_in_refill or a sale in the last 30 days.
+
+### Item 3.2 fact tables: DONE (02:45 Dubai)
+
+Migration `20261017211607_prd142a_2_strategy_facts.sql`: `fact_machine_daily`, `fact_shelf_daily`, `fact_product_machine_daily`, `fact_product_weekly` (RLS on, admin-only select, anon revoked), helpers `strategy_shelf_code`, `strategy_size_class`, and `build_strategy_facts(p_from)` (SECURITY DEFINER, service_role only). Formulas registered in docs/architecture/METRICS_REGISTRY.md (section "PRD-142a").
+
+The first run failed on an ambiguous column in the hour-profile CTE and then ran over 60 s because `v_shelf_capacity` (55 ms per call) was evaluated once per shelf-day group. Both fixed in place on prod (function body patched with CREATE OR REPLACE); the committed migration file is the fixed body, which is what prod runs.
+
+Evidence:
+
+- Rebuild: `build_strategy_facts(NULL)` = 5.06 s. Window 2025-08-18 to 2026-10-17. Rows: fact_machine_daily 10,468; fact_shelf_daily 31,172; fact_product_machine_daily 28,214; fact_product_weekly 3,750.
+- Sep 2026 reconciliation: facts AED 79,872.74 net ex-VAT vs sales_history AED 79,872.74 on the same basis (0.0000%), 9,672 units both. Gross incl. VAT AED 83,866.38.
+- Boonz Sep: COGS coverage 95.2% of units, gross margin 36.1%, card share 95.2% of baskets (on Adyen-covered days).
+
+Defaults chosen: window = LEAST(p_from, Monday 60 weeks back) so fact_product_weekly always has 60 full weeks (spec default p_from of 400 days is under 60 weeks); facts end yesterday (Dubai), today's partial day excluded. fact_shelf_daily and fact_product_machine_daily are sparse (sale days only); dead shelves are measured against the current shelf configuration. population column added to fact_machine_daily and net_rev_exvat / machine_weeks to fact_product_weekly (additive). Machines with no shelf layout name match default to STANDARD_16; VOXDFC-1001 (renamed VOXMM-1001) keeps VOX_PREMIUM_13.
