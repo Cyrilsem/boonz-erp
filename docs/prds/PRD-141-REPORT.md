@@ -190,12 +190,12 @@ Lock taken 2026-10-18 00:55 Dubai. Real specs on main (PRD-138 7,562 bytes, PRD-
 verbatim). Evidence for every line is in `docs/prds/PRD-141-log.md` under "PRD-141c log".
 This table is updated after every item.
 
-| PRD / item | Status | Evidence / migration |
-| --- | --- | --- |
-| 141 item 0 (Swap option) | IN PROGRESS (day) | Data evidence logged: FE Add Product writes Add New with no Remove on 10 of 12 occupied-lane swaps |
-| 138 WS-A | ALREADY DONE | bd13e1e, md5 equal for all 7 files |
-| 138 WS-B = 141 item 13 | DONE | 20261017210334; only VOXDFC-1001/2006 flip; drift 0 rows |
-| 141 item 14 | DONE | 20261017210904; ACTIVATEMOE stays eligible with flags removed (rolled-back test) |
-| 138 WS-C.1 | DONE | drift_reason live in 20261017210904 |
-| 138 WS-C.2, WS-C.3 | BLOCKED (permission) | Routine prompt edit refused by the auto-mode classifier; text in docs/prds/PRD-138-wsc-drift-routine-prompt.md |
-| 141 item 15 | DONE | 20261017212132; empty-lane term in p_score and p_score_aed; VOX-aware fill ALREADY DONE |
+| PRD / item               | Status               | Evidence / migration                                                                                           |
+| ------------------------ | -------------------- | -------------------------------------------------------------------------------------------------------------- |
+| 141 item 0 (Swap option) | IN PROGRESS (day)    | Data evidence logged: FE Add Product writes Add New with no Remove on 10 of 12 occupied-lane swaps             |
+| 138 WS-A                 | ALREADY DONE         | bd13e1e, md5 equal for all 7 files                                                                             |
+| 138 WS-B = 141 item 13   | DONE                 | 20261017210334; only VOXDFC-1001/2006 flip; drift 0 rows                                                       |
+| 141 item 14              | DONE                 | 20261017210904; ACTIVATEMOE stays eligible with flags removed (rolled-back test)                               |
+| 138 WS-C.1               | DONE                 | drift_reason live in 20261017210904                                                                            |
+| 138 WS-C.2, WS-C.3       | BLOCKED (permission) | Routine prompt edit refused by the auto-mode classifier; text in docs/prds/PRD-138-wsc-drift-routine-prompt.md |
+| 141 item 15              | DONE                 | 20261017212132; empty-lane term in p_score and p_score_aed; VOX-aware fill ALREADY DONE                        |

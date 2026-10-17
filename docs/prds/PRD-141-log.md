@@ -633,3 +633,35 @@ the machine with empty lanes scores strictly higher. Live check: AMZ-1029 p_scor
 Cody: sole ranking consumer pick_machines_for_refill reads p_score_aed / p_tier_aed; no tier moved,
 so tomorrow's pick set is unchanged by this item today. Rollback: `UPDATE pick_urgency_params SET
 w_empty = 0;` or supabase/rollbacks/prd141_15_rollback.sql.
+
+### PRD-141 item 16 (new-machine mode) - DONE (migration 20261017212834)
+
+New: `refill_policy_params.new_machine_days` (21), `new_machine_velocity_mode` ('floor' | 'replace' |
+'off', default 'floor'); invoker helpers `machine_is_new(uuid)` and
+`new_machine_velocity(uuid, uuid, numeric, text)`; view `v_pod_category_velocity` (fleet median
+slot_lifecycle v7 / v30 per pod product on established machines, 62 pods). Anchor patches:
+compute_refill_decision (v7 / v30 after the local/global fallback), engine_add_pod (lane v7 / v30),
+engine_swap_pod (`_swaps_disabled_machines` includes new machines: no Remove suggested, CS rule "no
+swaps on SAP"), assert_weimi_slot_match (block becomes warn for a new machine unless a manual
+override is set). REVOKE public, anon / GRANT authenticated, service_role restated on the three
+definers (grants unchanged: they already had exactly that).
+
+Deviation from the spec's literal wording, logged as required: "category velocity instead of own
+history" measured on live data would cut ACTIVATEMOE (relaunched 30 Sep, 105 sales in 48 h) from own
+v30 190.5 / v7 732.1 to category 87.0 / 89.0 over its 32 lanes, i.e. under-plan one of the busiest
+machines for its last 3 "new" days. SAP (relaunched 10 Oct) has own v30 4.6 vs category 8.8. Default
+mode 'floor' = GREATEST(own, category) gives SAP the category lift and leaves ACTIVATEMOE untouched
+where it out-sells the fleet. `UPDATE refill_policy_params SET new_machine_velocity_mode='replace'`
+gives the literal rule with no DDL.
+
+Rolled-back diff: new machines = SAP-2002, ACTIVATEMOE-2007 (only). Fleet-wide lanes whose v7 or v30
+changes: SAP 20, ACTIVATEMOE 8, every other machine 0. compute_refill_decision on all current lanes of
+SAP / ACTIVATEMOE / AMZ-1029 (control): changed lanes 20 / 8 / 0; total refill_qty 16->16, 109->109,
+66->66 (visual floors and capacity dominate today, so no quantity moves yet). Swaps disabled set: none
+before, SAP and ACTIVATEMOE after. Slot guard: SAP already had a manual 'warn' override (unchanged);
+ACTIVATEMOE moves from global 'block' to 'warn' until 21 Oct.
+Post-apply: check_ambiguous_function_overloads() 0 / 0 (Phase 4 overload check PASS), anon definers 0.
+Rollback: `UPDATE refill_policy_params SET new_machine_days = 0, new_machine_velocity_mode = 'off';`
+or supabase/rollbacks/prd141_16_rollback.sql.
+Cody: compute_refill_decision is called by engine_add_pod and get_pod_refill_draft (inherit); the
+helpers are invoker, STABLE, anon revoked; no new overloads; no writes.
