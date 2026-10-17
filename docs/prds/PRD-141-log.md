@@ -714,19 +714,56 @@ Rollback: supabase/rollbacks/prd141_11_rollback.sql.
 
 Every off-plan line added at an ACTIVATE machine since 1 Oct (created_by_edit or
 review_reason = driver_addition, 17 rows) was traced to pod_inventory:
+
 - ACTIVATEMCC-1037 A15 Evian - 1L, 6 units, 15 Oct 12:30: pod_inventory A15 row 6 units created 15 Oct.
 - ACTIVATEMOE B04 Tender Wonder Coconut Water, 2 units 14 Oct and 12 units 16 Oct: receive_dispatch_line
   ran (write_audit_log 14 Oct 09:35:33, 16 Oct 09:58:38) and incremented the existing same-expiry
   Active row on B04 (now 23 units, snapshot 16 Oct 09:58:38).
 - ACTIVATEMOE A10 Zigi x4 (3 each), B01 Vitamin Well x2 (6 each), ACTIVATEMCC-1037 A08 McVities 7:
   pod rows present the same day.
-The default is already the machine: AddDispatchRowDialog writes a Refill / Add New line on the shelf
-the user picks and receive_dispatch_line writes or increments pod_inventory; a warehouse leg exists
-only when the user picks Remove. What looks like "landed in the warehouse" is the transient
-WH_CENTRAL row pack_dispatch_line creates on its phantom-expiry path (bug012 alert "No Active
-wh_inventory row with stock>0 matches this expiry"): e.g. e5b291e4 Evian - 1L, provenance
-dispatch_receive, source_event_id = the 15 Oct addition, now 0 / Inactive. It shows in Inventory
-for a moment and nets to zero; no unit is lost. No change made.
+  The default is already the machine: AddDispatchRowDialog writes a Refill / Add New line on the shelf
+  the user picks and receive_dispatch_line writes or increments pod_inventory; a warehouse leg exists
+  only when the user picks Remove. What looks like "landed in the warehouse" is the transient
+  WH_CENTRAL row pack_dispatch_line creates on its phantom-expiry path (bug012 alert "No Active
+  wh_inventory row with stock>0 matches this expiry"): e.g. e5b291e4 Evian - 1L, provenance
+  dispatch_receive, source_event_id = the 15 Oct addition, now 0 / Inactive. It shows in Inventory
+  for a moment and nets to zero; no unit is lost. No change made.
 
 Phase 3 overload check: check_ambiguous_function_overloads() 0 / 0 after item 11.
 Night block complete at 01:55 Dubai: PRD-138 WS-A (already), WS-B, WS-C.1, PRD-141 items 10 to 16.
+
+## Day block, prepared during the night (nothing applied before 06:00)
+
+### PRD-141 items 0 and 1 (swap integrity): root cause found, fix prepared and dry-run proven
+
+Root cause of A0 (the Packing Swap): `swap_shelf_pod` writes Remove legs only for TODAY'S PLANNED
+Refill / Add New rows of the old pod on that shelf, at the planned quantity (it nets the planned
+delivery). It never removes what is physically on the lane. When the lane is not in today's plan
+(the normal case for an ad-hoc swap) it writes Add New legs and zero Removes, so nothing reaches
+driver_confirm_remove and Warehouse Confirmations. Root cause of A1: `add_dispatch_row` (Refill > Add
+Product > Add New on Packing and Dispatch Detail, and driver additions via driver_add_flagged_row)
+writes only the row asked for. The plan path (`push_plan_to_dispatch`, direct inserts) has the same
+gap when the plan line has no Remove.
+
+Fix (supabase/prepared/prd141c/prd141_01_swap_remove_leg.sql): `ensure_swap_remove_leg(machine,
+shelf_code, new_pod, date)` reads what is physically on the lane (WEIMI current_stock and pod; slot_lifecycle
+/ pod_inventory fallback), and if it is a different pod with stock, writes the missing Remove legs
+through add_dispatch_row (old boonz products from Active pod_inventory, remainder on the largest, else
+the top mapped variant), comment "[auto-remove: swap to <pod>]". Idempotent: covered = Removes already
+on the lane and date minus planned deliveries of the old pod. Hooked into add_dispatch_row (every Add
+New) and push_plan_to_dispatch (every Add New lane after the plan lines land, in an exception-safe
+block that alerts instead of failing the push). vox_at_venue lines skipped. The spec's separate
+`swap_dispatch_lane` RPC is not created: the existing Packing Swap RPC now writes both legs, which is
+what item 0 asks for, and a second writer for the same thing would be a duplicate path.
+
+Rolled-back dry run (2026-10-18 ~02:10, warehouse manager impersonated, WH2-2001-3000-O1 test
+machine, date today+3):
+- FE Add New of Vitamin Well - Antioxidant x4 on A01 (WEIMI: Tamreem, 6 on shelf): Add New row plus
+  an auto Remove of Tamreem Dried Freeze Fruits - Mango x6, pod lot bound, status created.
+- Second Add New (Vitamin Well - Upgrade x2) on A01: status covered, no second Remove.
+- Packing Swap sheet `swap_shelf_pod(..., A03 -> Vitamin Well, qty 4)` on an unplanned lane (WEIMI:
+  Santiveri, 3 on shelf): the function's own loop wrote 0 Removes (c_removed = 0, the A0 bug
+  reproduced) and 3 Add New legs; the new hook wrote Remove of Santiveri - Coco Quinoa x3.
+- Add New of the same pod on A05 (Chocolate Bar lane): not_a_swap, no Remove.
+Rollback file: supabase/rollbacks/prd141_01_rollback.sql. Apply, FE reproduction on the test
+machine (warehouse session) and the Warehouse Confirmations proof are day-window work.
