@@ -89,3 +89,26 @@ Fixes made while validating (applied in place on prod; files carry the final bod
 Defaults: weekend = Saturday and Sunday. Lunch = Mon to Fri 11:00 to 14:59 Dubai. drinks = boonz_products.attr_drink of the pod's largest-split mapped product (VOX premium machines have no mapping, drinks_share NULL). cv_monthly_12 uses only full calendar months inside the era. Ramp index compares within the same population.
 
 Evidence, RAMPING machines (age < 90 days) with ramp_index: SAP-2002 (age 8) 3.22, BEBEACH-1069 (11) 1.65, IRIS-1070 (53) 0.70, AMZ-1046 (83) 1.00; partner ACTIVATEMOE-2007 (13) 5.00, VOXDFC-2006 (20) 1.67, VOXDFC-1001 (19) 0.92.
+
+### Item 3.4 product_supply_daily: DONE (03:35 Dubai)
+
+Migration `20261017212841_prd142a_4_product_supply_daily.sql`: `product_supply_daily` and `build_product_supply(p_d)` (SECURITY DEFINER, service_role only). 169 pods per day, 0.09 s.
+
+Rules: wh_units_central = WH_CENTRAL, Active, not quarantined, not expired, through any Active product_mapping row. Fan-out pods (is_catchall: Chocolate Bar, Snack Bar, Soft Drinks Mix; plus Vitamin Well, Tannourine Water, Sun Blast Juice from the handover list) carry wh_status only. wh_status: none <= 5 units, low <= 2 weeks of cover, else stocked. weekly_rate = Boonz-population units over the last 4 complete Monday weeks / 4 (WH_CENTRAL fuels Boonz machines). Open POs = received_date NULL and purchase_outcome NULL; never counted as fuel.
+
+Fix while validating: deployed_units first came from pod_inventory and was inflated (Barebells 881) because pod_inventory keeps historical snapshot rows. It now reads `v_shelf_capacity.current_stock` (live shelf truth) with the shelf product name normalised through product_name_conventions: 7,466 of 7,490 shelf units (99.7%) attribute to a pod. Patched in place; file md5 = prod md5.
+
+Evidence (2026-10-18):
+
+| Pod | wh_units_central | wh_status | deployed | open PO | weekly rate | weeks of cover |
+| --- | --- | --- | --- | --- | --- | --- |
+| Hunter | 0 | none | 52 | 0 | 13.25 | 0.00 |
+| Dubai Popcorn | 16 | low | 36 | 24 | 17.25 | 0.93 |
+| Chocolate Bar (fan-out) | NULL | low | 723 | 0 | 184.50 | NULL |
+| Barebells | 5 | none | 300 | 300 | 76.50 | 0.07 |
+
+### Nightly job: DONE (03:40 Dubai)
+
+Migration `20261017213013_prd142a_5_strategy_nightly_job.sql`: `run_strategy_nightly()` runs sync_machine_eras, build_strategy_facts, build_machine_features, build_product_supply, each isolated in its own exception block, and logs the run to monitoring_alerts (source `prd142_strategy_nightly`, pre-acknowledged info, or an unacknowledged warning if a step fails). pg_cron job 88 `prd142_strategy_nightly_0330_dubai` at `30 23 * * *` UTC = 03:30 Dubai. Run by hand: 6.25 s total (eras 0 changes, facts 5.79 s, features 0.29 s, supply 0.09 s).
+
+Phase 1 complete.
