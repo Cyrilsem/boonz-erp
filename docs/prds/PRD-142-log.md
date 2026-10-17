@@ -71,3 +71,21 @@ Evidence:
 - Boonz Sep: COGS coverage 95.2% of units, gross margin 36.1%, card share 95.2% of baskets (on Adyen-covered days).
 
 Defaults chosen: window = LEAST(p_from, Monday 60 weeks back) so fact_product_weekly always has 60 full weeks (spec default p_from of 400 days is under 60 weeks); facts end yesterday (Dubai), today's partial day excluded. fact_shelf_daily and fact_product_machine_daily are sparse (sale days only); dead shelves are measured against the current shelf configuration. population column added to fact_machine_daily and net_rev_exvat / machine_weeks to fact_product_weekly (additive). Machines with no shelf layout name match default to STANDARD_16; VOXDFC-1001 (renamed VOXMM-1001) keeps VOX_PREMIUM_13.
+
+### Item 3.3 machine_features: DONE (03:20 Dubai)
+
+Migration `20261017212319_prd142a_3_machine_features.sql`: `machine_features` (one row per machine with an open era per as_of, 400 days kept), `strategy_ramp_curve` (median cumulative net rev and units by day index from inception, per population, eras whose inception is inside the fact window, days 1 to 365), and `build_machine_features(p_as_of)` (SECURITY DEFINER, service_role only). Extra columns beyond the spec (additive): inception, active_days_90, peak_hours_90, shelves_configured.
+
+Result: 42 machines (35 include_in_refill plus 7 partner machines still selling), 726 ramp-curve rows, 0.28 s.
+
+Fixes made while validating (applied in place on prod; files carry the final bodies; md5 of every function body in the repo equals `md5(prosrc)` on prod for all 7 functions so far):
+
+- card_share_90 was 0 everywhere: integer division. Fixed with a numeric cast.
+- Adyen feed's last day (2026-10-01) is a partial ingest and produced fake cash baskets (AMZ-1029 11 card / 13 cash). The last feed day is no longer treated as covered.
+- Machines the Adyen feed never attributes (IRIS-1070, AMZ-1046, BEBEACH) showed card share 0%; they now show NULL.
+- AMZ machines carry 24 configured shelves (cabinets B to E) with no product and no stock, which read as 60% dead. A shelf now counts only if it holds a current product (v_shelf_capacity.current_product) or sold in the window. AMZ dead % went 0.600 to 0.000.
+- Dead threshold set at under 1 unit per 14 active days, so IRIS-1070 reads 31% dead (handover counted 8 of 16 lanes at 0 to 4 units over 6.5 weeks on a slightly different window).
+
+Defaults: weekend = Saturday and Sunday. Lunch = Mon to Fri 11:00 to 14:59 Dubai. drinks = boonz_products.attr_drink of the pod's largest-split mapped product (VOX premium machines have no mapping, drinks_share NULL). cv_monthly_12 uses only full calendar months inside the era. Ramp index compares within the same population.
+
+Evidence, RAMPING machines (age < 90 days) with ramp_index: SAP-2002 (age 8) 3.22, BEBEACH-1069 (11) 1.65, IRIS-1070 (53) 0.70, AMZ-1046 (83) 1.00; partner ACTIVATEMOE-2007 (13) 5.00, VOXDFC-2006 (20) 1.67, VOXDFC-1001 (19) 0.92.

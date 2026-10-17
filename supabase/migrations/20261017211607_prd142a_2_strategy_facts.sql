@@ -21,8 +21,9 @@
 --   'partner_revenue_share'->>venue_group (NULL when not configured).
 -- Card vs cash: classification_name and delivered_from are empty on current
 --   rows, so card_txns = least(baskets, Adyen transactions attributed to the
---   machine that Dubai day) on days the Adyen feed has any row; NULL on days
---   it does not; cash_txns = baskets - card_txns.
+--   machine that Dubai day) on days the Adyen feed fully covers (its last,
+--   partial day excluded) and only for machines the feed attributes at all;
+--   NULL otherwise; cash_txns = baskets - card_txns.
 -- baskets = count distinct split_part(internal_txn_sn, '_', 1).
 -- Window: facts are rebuilt from LEAST(p_from, Monday 60 weeks back) to
 --   yesterday (Dubai), so fact_product_weekly always holds 60 full weeks.
@@ -239,7 +240,10 @@ BEGIN
   FROM v_adyen_transactions_attributed
   WHERE creation_date >= (v_from::timestamp AT TIME ZONE 'Asia/Dubai') AND attributed_machine_id IS NOT NULL
   GROUP BY 1, 2;
-  CREATE TEMP TABLE _ad ON COMMIT DROP AS SELECT DISTINCT d FROM _a;
+  -- The feed's last day is partial (ingest stops mid-day): not covered.
+  CREATE TEMP TABLE _ad ON COMMIT DROP AS SELECT DISTINCT d FROM _a WHERE d < (SELECT max(d) FROM _a);
+  -- Machines the feed attributes at all; others get NULL card/cash, not a false 0.
+  CREATE TEMP TABLE _am ON COMMIT DROP AS SELECT DISTINCT machine_id FROM _a;
 
   -- fact_machine_daily
   DELETE FROM fact_machine_daily WHERE d >= v_from;
@@ -290,7 +294,7 @@ BEGIN
   JOIN _m m USING (machine_id)
   LEFT JOIN agg a USING (machine_id, d)
   LEFT JOIN hrs h USING (machine_id, d)
-  LEFT JOIN _ad ad ON ad.d = dy.d
+  LEFT JOIN _ad ad ON ad.d = dy.d AND EXISTS (SELECT 1 FROM _am am WHERE am.machine_id = dy.machine_id)
   LEFT JOIN _a cd ON cd.machine_id = dy.machine_id AND cd.d = dy.d;
   GET DIAGNOSTICS v_n_mach = ROW_COUNT;
 
