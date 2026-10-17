@@ -791,11 +791,25 @@ Both wm_confirm functions took p_caller for the caller identity; replaced so p_c
 for postgres / service_role sessions (hard rule: role checks on auth.uid()).
 
 Rolled-back dry run (02:05, warehouse manager impersonated):
+
 - Remove of 5 on ACTIVATEMCC-1037 A08 (primary WH_MCC), driver-confirmed: appears in
   v_wm_confirmations as source dispatch_return; wm_confirm_line restocked with breakdown
   [3 x 2027-01-10, 2 x 2027-02-20] -> two new rows in WH_CENTRAL (3 and 2, provenance
   dispatch_return, not quarantined). Item 2 and item 3 evidence.
 - Remove of 1 confirmed with outcome damaged -> new WH_CENTRAL row, provenance damaged_return,
   quarantined true, damage_source transit, 0 rows in v_wh_pickable. Item 4 evidence.
-FE still needed (day): "Damaged" option in the Warehouse Confirmations outcome picker, write-off
-button for damaged rows on WH Quarantine (warehouse_damage_writeoff already exists).
+  FE still needed (day): "Damaged" option in the Warehouse Confirmations outcome picker, write-off
+  button for damaged rows on WH Quarantine (warehouse_damage_writeoff already exists).
+
+### PRD-141 item 19 (days_since_visit on delivery): prepared and fleet-diffed (apply in the day window)
+
+Current source (v_machine_health_signals.last_visit): max(dispatch_date) of v_delivery_verification
+'landed' (picked_up plus WEIMI movement on the dispatch date). Prepared
+supabase/prepared/prd141c/prd141_19_days_since_visit_on_delivery.sql: new refill_dispatching.delivered_at
+stamped by receive_dispatch_line on received fill lines, backfilled from write_audit_log receive
+events (last 120 days); last visit = latest of delivered_at, driver-confirmed Remove, manual refill.
+Rollback supabase/rollbacks/prd141_19_rollback.sql.
+Full-fleet rolled-back diff (02:15): 7,791 lines backfilled; days_since_visit unchanged on 34 of 35
+machines; only AMZ-1029-3003-O1 moves 1 -> 3 (its 16 Oct bags: 18 lines packed and picked up, never
+received; last real delivery 14 Oct), p_tier_aed P2 -> P1, tier star unchanged. That is the spec
+acceptance: days_since_visit does not move until receive_dispatch_line. View read 1.6 s.
