@@ -829,3 +829,19 @@ Rolled-back dry run (02:25): Remove McVities x7 on ACTIVATEMCC-1037 A08 paired t
 A01, driver confirmed 6: queue shows 1 line, source m2m_transfer, qty 6; wm_confirm_line acknowledged
 -> line gone; approve_m2m_transfer -> approved, pair_qty 6, wh_delta 0, destination pod 0 -> 6,
 destination filled_quantity 6.
+
+### PRD-141 item 6 (pickable_stock): prepared and dry-run proven (apply + FE in the day window)
+
+Found (scoping agent, verified): three disagreeing "available" predicates. Pack screen max =
+v_wh_pickable exact-batch stock of the pinned batch (packing/[machineId]/page.tsx:1096-1105,
+4964-4972), DispatchEditDialog shows "Max available: N" (:111-112); G8 in validate_refill_plan sums raw
+warehouse_stock with no expiry or manual-quarantine filter; the picker wh_fefo_for_line uses
+v_wh_pickable with expiry >= plan date. Prepared supabase/prepared/prd141c/prd141_06_pickable_stock.sql:
+refill_policy_params.min_shelf_life_days (14), invoker pickable_stock(boonz, warehouse, needed_by)
+returning pickable / on_hand / excluded_quarantined / excluded_expiring / cutoff / message; G8 avail
+uses the same predicate and names the reason in its detail; wh_fefo_for_line gets the shelf-life floor.
+Impact: 3 lots / 12 units of 115 lots / 1,890 pickable units in WH_CENTRAL held back.
+Rolled-back dry run (02:30): Red Bull - 355ML -> "0 pickable, 5 on hand: 0 quarantined, 5 expiring
+before 01 Nov"; Santiveri - Coco Quinoa -> "0 pickable, 4 on hand: ..."; wh_fefo_for_line returns no
+lot for that Red Bull; validate_refill_plan compiles and runs. Rollback file prd141_06_rollback.sql.
+FE (day): pack screen max reads pickable_stock and DispatchEditDialog shows its message.
