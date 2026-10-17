@@ -709,3 +709,24 @@ Promotion of machine-only SKUs (spec said 27; live count 30 pairs on 2+ machines
 SKUs in all) is a variant-adding change, so it is a list for CS approval, not applied:
 docs/prds/PRD-141-mapping-hygiene-list.md (with a recommendation and the apply SQL).
 Rollback: supabase/rollbacks/prd141_11_rollback.sql.
+
+### PRD-141 item 12 (off-plan additions go to the pod) - ALREADY DONE (evidence)
+
+Every off-plan line added at an ACTIVATE machine since 1 Oct (created_by_edit or
+review_reason = driver_addition, 17 rows) was traced to pod_inventory:
+- ACTIVATEMCC-1037 A15 Evian - 1L, 6 units, 15 Oct 12:30: pod_inventory A15 row 6 units created 15 Oct.
+- ACTIVATEMOE B04 Tender Wonder Coconut Water, 2 units 14 Oct and 12 units 16 Oct: receive_dispatch_line
+  ran (write_audit_log 14 Oct 09:35:33, 16 Oct 09:58:38) and incremented the existing same-expiry
+  Active row on B04 (now 23 units, snapshot 16 Oct 09:58:38).
+- ACTIVATEMOE A10 Zigi x4 (3 each), B01 Vitamin Well x2 (6 each), ACTIVATEMCC-1037 A08 McVities 7:
+  pod rows present the same day.
+The default is already the machine: AddDispatchRowDialog writes a Refill / Add New line on the shelf
+the user picks and receive_dispatch_line writes or increments pod_inventory; a warehouse leg exists
+only when the user picks Remove. What looks like "landed in the warehouse" is the transient
+WH_CENTRAL row pack_dispatch_line creates on its phantom-expiry path (bug012 alert "No Active
+wh_inventory row with stock>0 matches this expiry"): e.g. e5b291e4 Evian - 1L, provenance
+dispatch_receive, source_event_id = the 15 Oct addition, now 0 / Inactive. It shows in Inventory
+for a moment and nets to zero; no unit is lost. No change made.
+
+Phase 3 overload check: check_ambiguous_function_overloads() 0 / 0 after item 11.
+Night block complete at 01:55 Dubai: PRD-138 WS-A (already), WS-B, WS-C.1, PRD-141 items 10 to 16.
