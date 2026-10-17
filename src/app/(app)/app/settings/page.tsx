@@ -1,3 +1,7 @@
+import Link from "next/link";
+
+// PRD-140 Item 3: Settings hub. Replaces the placeholder with a real list;
+// "Users" is the only entry for now.
 export default function SettingsPage() {
   return (
     <div className="p-8 max-w-5xl">
@@ -19,44 +23,34 @@ export default function SettingsPage() {
         </p>
       </div>
 
-      <div
+      <Link
+        href="/app/settings/users"
         style={{
+          display: "block",
           background: "white",
           border: "1px solid #e8e4de",
           borderLeft: "4px solid #24544a",
           borderRadius: 12,
-          padding: "32px 40px",
+          padding: "24px 28px",
           maxWidth: 480,
+          textDecoration: "none",
         }}
       >
-        <div
-          style={{
-            width: 40,
-            height: 40,
-            background: "#e6d1b8",
-            borderRadius: 8,
-            marginBottom: 16,
-            display: "flex",
-            alignItems: "center",
-            justifyContent: "center",
-          }}
-        >
-          <span style={{ fontSize: 20 }}>🚧</span>
-        </div>
         <h2
           style={{
             fontWeight: 700,
-            fontSize: 18,
-            marginBottom: 8,
+            fontSize: 16,
+            marginBottom: 4,
             color: "#0a0a0a",
           }}
         >
-          Coming soon
+          Users
         </h2>
-        <p style={{ color: "#6b6860", fontSize: 14, lineHeight: 1.6 }}>
-          This section is being built. Check back soon.
+        <p style={{ color: "#6b6860", fontSize: 13, margin: 0 }}>
+          Create users, change roles, grant or deny individual areas, reset
+          passwords, disable accounts.
         </p>
-      </div>
+      </Link>
     </div>
   );
 }

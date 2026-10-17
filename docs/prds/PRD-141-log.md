@@ -270,3 +270,64 @@ effect for a convenience test when the underlying authorization logic
 CS (or a future session with CS present to authenticate) can run the
 literal curl sequence directly; it should take under a minute given the
 function is already deployed and working.
+
+### Block E, PRD-140 Item 3 (Settings > Users page) - DONE
+
+Built `src/lib/admin-users.ts` (thin typed wrapper around
+`supabase.functions.invoke("admin-users", ...)`, one method per action,
+plus `generateTempPassword()` for the create dialog) and
+`src/app/(app)/app/settings/users/page.tsx`.
+
+List: name, email, role, surfaces chips (App / Field / Tracker, derived
+from the `surfaces` object the edge function already computes), last
+sign-in (relative), status (Active / Disabled / Never logged in, derived
+from `banned_until` and `last_sign_in_at`), open sessions. Search box
+filters name/email client-side; sorted by name.
+
+Create dialog: full name, email, role select, a generated 12-character
+temporary password (excludes visually ambiguous characters, shown once
+with a copy button, editable before submit). `email_confirm` is always
+true inside the edge function's `create` action, not a page-level
+toggle.
+
+Edit drawer: name, role select, the four actions named in the spec (send
+reset, set temporary password, sign out everywhere, disable/enable), and
+an Area matrix grouped by surface (App, Field) with a three-state
+Default/Allow/Deny select per area. Reads `access_areas`,
+`role_area_defaults` (for the target's current role), and
+`user_area_overrides` directly via the normal Supabase client (RLS
+already allows this: the viewer holds `app.settings.users`, which is
+exactly the condition `user_area_overrides_select` checks). "Default"
+shows the role-default outcome live as the row dims or lights up; saving
+diffs the pending choices against the current persisted overrides and
+calls `set_override`/`clear_override` only for the ones that actually
+changed, then reloads the list.
+
+Guard rails mirrored in the UI, not just the edge function: the role
+select and the disable/enable button are both disabled (with a tooltip
+explaining why) when the target is the caller themselves, or when the
+target is a superadmin and the caller is not.
+
+`src/app/(app)/app/settings/page.tsx` replaced: a real hub listing
+"Users" (nothing else yet, per spec).
+
+Gate: a direct `v_my_access` read inside the page itself (`useRequireArea`
+does not exist until Item 4), redirecting to `/app` when
+`app.settings.users` is absent.
+
+Verified: `npx tsc --noEmit` and `npx eslint` on all three touched/new
+files, both clean. Started the project's own already-running dev server
+(confirmed live on :3000) and navigated to `/app/settings/users`
+unauthenticated in a real browser: correctly redirected to
+`/login?redirectTo=%2Fapp%2Fsettings%2Fusers` (the existing middleware's
+own auth boundary, confirming the route compiles and serves with no
+build-time exception), zero console errors.
+
+NOT run: a full logged-in click-through (seeing the real 8 users, editing
+the Area matrix live, confirming a warehouse session gets redirected from
+the URL) for the same credential constraint as Item 2: no real account's
+password is available to this session, and creating a new account to
+drive the test would leave a permanent fixture per the no-deletion rule.
+Logged for CS to click through directly; given the clean typecheck,
+lint, and unauthenticated-redirect check, this should mostly be about
+visual polish, not functional surprises.
