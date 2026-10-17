@@ -665,3 +665,32 @@ Rollback: `UPDATE refill_policy_params SET new_machine_days = 0, new_machine_vel
 or supabase/rollbacks/prd141_16_rollback.sql.
 Cody: compute_refill_decision is called by engine_add_pod and get_pod_refill_draft (inherit); the
 helpers are invoker, STABLE, anon revoked; no new overloads; no writes.
+
+### PRD-141 item 10 (effective mapping) - DONE (migration 20261017213720)
+
+Found: the live draft path is cron 13 -> build_draft_for_confirmed_v3 -> stitch_v3, and the SKU choice
+happens in resolve_fefo_sku_legs_v3 / resolve_supply_ladder_v3, which took the UNION of machine and
+global Active rows (a product dropped at machine level came back through its global row; 0% rows
+stayed in). stitch_pod_to_boonz is idle (pod_refill_plan holds only REMOVE / M2W rows in 14 days) and
+was not touched. write_refill_plan's G11 only looked at Active machine rows and said "G11 not in
+machine mapping" with no detail.
+
+Change: invoker `mapping_refill_block(machine, pod, boonz)`: machine Active rows win when the machine
+has any for that pod (else global Active rows); split 0 blocks; only-inactive rows block; no row at all
+does not block (C4 unchanged). The resolvers skip blocked variants; write_refill_plan returns
+`G11_mapping_blocks` naming the row, and the old G11 message now names the mapped products and the fix.
+
+First design (machine row of any status wins) was rejected in the dry run: it left 39 selling lanes
+with no variant at all (e.g. NISSAN / WPP Coca Cola Zero) because prod holds 3,531 Inactive machine
+rows that are history, not vetoes. Revised rule dry run (rolled back), 539 live lanes on
+include_in_refill machines: variant rows 1,845 -> 1,614 across 112 lanes; dropped 183 global rows
+shadowed by the machine's own Active set and 48 zero-split rows; lanes left with no variant: 1
+(SAP-2002 Extra Gum, every mapping row 0%, correct). AMZ-1029 Soft Drinks Mix variants 8 -> 4
+(Coca Cola Diet / Regular / Zero and Pepsi Regular drop: global rows shadowed by AMZ's own set).
+AMZ's own rows still carry 7Up 5%, 7Up Diet 5%, Mountain Dew 5%; those stay until the mapping is
+changed (item 11 list).
+Spec test (post-apply, rolled back): write_refill_plan Refill of Dubai Popcorn - Sweet And Salty on
+VML-1004 A16 returns validation_error / G11_mapping_blocks: "Refill Dubai Popcorn - Sweet And Salty
+on VML-1004-0500-O1 A16 is blocked by the machine mapping row 3fb0a793-... (split_pct 0.00, status
+Active, split_zero). Set split above 0 ...". Overload check 0. Grants unchanged.
+Rollback: supabase/rollbacks/prd141_10_rollback.sql.
