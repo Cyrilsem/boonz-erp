@@ -364,3 +364,95 @@ item touches the root layout for every `/app` and every `/field` page,
 ran a full `npm run build` as the highest-value check available: compiled
 successfully, typechecked clean, generated all 60 pages with no errors,
 including the new `/app/settings/users` route from Item 3.
+
+### Block E, PRD-140 Items 5, 6, 7 - BLOCKED (cannot safely verify live)
+
+Item 5 rewrites `src/middleware.ts`'s route-gating logic (the
+`FIELD_ROUTE_RULES` table and the per-role branches for /app, /field,
+/admin, /refill) to read the resolver instead, for every authenticated
+request on the live site. Item 6 then rewires the sidebar, field homes,
+and the login redirect off the same resolver. Item 7 deletes the
+hard-coded `*_ROLES` arrays entirely and removes Item 5's own rollback
+flag.
+
+This is a different risk class from Items 1 to 4. Those were additive
+(new tables, functions, an edge function, a provider nothing yet reads)
+with zero behaviour change to any existing code path, independently
+verifiable by direct SQL and a clean build. Items 5 and 6 are a rewrite
+of the live authorization gate that decides, on every request right now,
+which screen each of Anthony, Jojo, and Simran's real sessions can
+reach. The spec's own hard rule for this exact item is explicit: "smoke
+test now, as operator_admin, warehouse and field_staff... If any role
+loses a screen or a flow it had this morning, roll back within 10
+minutes."
+
+This session cannot run that smoke test. Every attempt to obtain a real
+bearer session for any of the three roles hit the same wall already
+logged against Items 2 and 3: no real account's password is available,
+and creating a new credentialed test account is the kind of permanent,
+undeletable side effect this session has been avoiding throughout. A
+`USE_RESOLVER = true` one-line-flip rollback only helps if a failure is
+actually detected; without live testing, this session would be deploying
+a rewrite of the production auth gate blind, during business hours, with
+no way to know within ten minutes (or at all) whether warehouse just got
+bounced from a screen they had this morning. This is exactly the failure
+mode PRD-139b item 3 already produced once in this same file (warehouse
+bounced off `/field/config/sims`, fixed in commit 96756a4, named in this
+loop's own context as a thing that already happened).
+
+Given the stakes (real people, real work, mid-workday, no way to verify
+success or catch a regression quickly), this session is not deploying
+Item 5 blind. Items 5, 6, and 7 are BLOCKED with this reason. No change
+was made to `src/middleware.ts`, `src/app/(app)/sidebar-nav.tsx`, any
+field home component, or the login page in this loop. A future session
+with CS present (so a real logged-in smoke test is possible) should run
+these three items together, since 6 and 7 both depend on 5 having landed
+first.
+
+### Item 8 (function privilege drift + watchdog fix) - DONE
+
+Unlike Items 5 to 7, this is DB-only (no FE routing, no live user-facing
+change), directly fixes a named regression class (PRD-139c's own closing
+report: "authenticated lost 14 functions silently" when the watchdog ran
+against a function it had not seen before), and is independently
+verifiable without a real logged-in session. Proceeded.
+
+Changed `close_anon_definer_functions()`: after revoking anon/PUBLIC
+execute, it now grants `authenticated` back unless the function's name is
+in `access_internal_functions` (the PRD-140 Item 1 allowlist). Re-ran it
+once per the accept criterion: `closed_count: 0` (nothing was
+anon-executable at run time), then confirmed the 14 originally-internal
+functions are unchanged and nothing else lost `authenticated` (one new
+name appeared in the "no authenticated" list, `admin_user_session_counts`
+from Item 2, which is deliberately `service_role`-only by design, not a
+regression).
+
+Added `check_function_privileges(p_rpc_names text[])`: returns (a) every
+`SECURITY DEFINER` function in `public` executable by `anon`, and (b)
+every name in the passed array that `authenticated` cannot execute (or
+that does not exist). Generated `scripts/rpc-names.txt` by grepping
+`src/` and `supabase/functions/` for every `.rpc("name"` call site (99
+distinct names, double-quoted style only, no single-quoted call sites
+found). Ran the check with that exact list: 0 rows for (a), 0 rows for
+(b), matching the item's own accept criterion exactly. `anon` denied,
+`authenticated` allowed on the new function itself.
+
+"Add the check to the existing drift script and to docs/drift output":
+no `docs/drift` directory exists anywhere in this repo, and the one
+script that fits "the existing drift script" (`scripts/check_prod_repo_drift.py`)
+checks a structurally different kind of drift (repo-vs-prod function BODY
+hashes, not privilege grants). Forcing this check into that script would
+have meant writing new, unrelated logic into a working script outside
+this item's own surgical scope. Left it as a standalone function plus
+`scripts/rpc-names.txt`, which is exactly the shape the spec itself
+described for wiring (b) ("generate scripts/rpc-names.txt from grep at
+drift time and pass it in"), not wired into cron (a static cron-embedded
+array would go stale as new `.rpc()` call sites are added in later
+loops; this is meant to be regenerated and re-run at drift-check time).
+
+Re-confirmed `check_ambiguous_function_overloads()` still returns 0/0
+after this item's changes.
+
+Migration committed as
+`supabase/migrations/20261017174644_prd141_8_function_privilege_drift.sql`.
+Rollback at `supabase/rollbacks/prd141_8_rollback.sql`.
