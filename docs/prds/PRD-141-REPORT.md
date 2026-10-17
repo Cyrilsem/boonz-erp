@@ -198,3 +198,4 @@ This table is updated after every item.
 | 141 item 14 | DONE | 20261017210904; ACTIVATEMOE stays eligible with flags removed (rolled-back test) |
 | 138 WS-C.1 | DONE | drift_reason live in 20261017210904 |
 | 138 WS-C.2, WS-C.3 | BLOCKED (permission) | Routine prompt edit refused by the auto-mode classifier; text in docs/prds/PRD-138-wsc-drift-routine-prompt.md |
+| 141 item 15 | DONE | 20261017212132; empty-lane term in p_score and p_score_aed; VOX-aware fill ALREADY DONE |

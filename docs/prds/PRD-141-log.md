@@ -609,3 +609,27 @@ auto-mode classifier denied this session's edit of another agent's instructions.
 The exact text (same-version fallback, 2026-09-12 to 09-15 consolidation exception, drift_reason
 reading for WS-C.1, index.lock sweep) is in `docs/prds/PRD-138-wsc-drift-routine-prompt.md` for CS
 to paste.
+
+### PRD-141 item 15 (empty-lane weighting, VOX-aware fill) - DONE (migration 20261017212132)
+
+Found: `pick_machines_for_refill` ranks on `(p_tier_aed <> 'P1'), p_score_aed DESC`. `v_machine_priority`
+computes `s_empty` and `pct_empty_lanes` but neither `p_score` nor `p_score_aed` used them, and
+`pick_urgency_params.w_empty` (0.945) was read by no view or function (checked pg_proc.prosrc and every
+view definition). Change: both scores add `w_empty * pct_empty_lanes`; `w_empty` set to the spec
+default 0.4 (old value 0.945 logged here, it was dead).
+
+VOX-aware half: ALREADY DONE. `v_machine_health_signals.fill_pct` and `v_lane_grain` (source of
+pct_empty_lanes) carry no sourcing filter, so venue lanes already count in fill; refill lines on
+venue lanes already carry `source_origin = 'vox_at_venue'` (30 Add New lanes since 3 Oct alone).
+
+Rolled-back fleet diff (35 machines in v_machine_priority, 2.7 s per read): 5 machines change, all
+up, no tier change on either tier column, ranking order identical:
+AMZ-1029 (12.5% empty, fill 63.5) p_score 62.09 to 67.09, aed 370.28 to 375.28;
+ACTIVATEMCC-2005 (3.1%) 23.44 to 24.69; ACTIVATEMCC-1037 (6.3%) 20.62 to 23.12;
+VOXMM-1013 (6.3%) 30.64 to 33.14; MC-2004 (3.1%) 48.85 to 50.10.
+Acceptance (6 empty lanes outrank 0 at the same fill): the added term is 0 at 0% empty and
+0.4 x pct otherwise, every other component unchanged, so at equal fill and equal other components
+the machine with empty lanes scores strictly higher. Live check: AMZ-1029 p_score_aed 375.28.
+Cody: sole ranking consumer pick_machines_for_refill reads p_score_aed / p_tier_aed; no tier moved,
+so tomorrow's pick set is unchanged by this item today. Rollback: `UPDATE pick_urgency_params SET
+w_empty = 0;` or supabase/rollbacks/prd141_15_rollback.sql.
