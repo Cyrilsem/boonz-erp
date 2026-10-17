@@ -2,6 +2,7 @@ import { createClient } from "@/lib/supabase/server";
 import SidebarNav from "./sidebar-nav";
 import { InventorySessionProvider } from "@/lib/inventory/session";
 import { OWNER_EMAIL } from "@/lib/auth/owner";
+import { AccessProvider } from "@/lib/auth/access";
 
 export default async function AppLayout({
   children,
@@ -47,7 +48,11 @@ export default async function AppLayout({
           {/* Phase G P1: provide inventory-control session context to any
               client component below this layout (operator inventory page is
               the primary WH-manager surface that consumes it). */}
-          <InventorySessionProvider>{children}</InventorySessionProvider>
+          {/* PRD-140 Item 4: AccessProvider mounted here so useRequireArea is
+              available to any /app page. No page reads it yet (Item 7). */}
+          <AccessProvider>
+            <InventorySessionProvider>{children}</InventorySessionProvider>
+          </AccessProvider>
         </main>
       </div>
     </>

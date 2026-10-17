@@ -331,3 +331,36 @@ drive the test would leave a permanent fixture per the no-deletion rule.
 Logged for CS to click through directly; given the clean typecheck,
 lint, and unauthenticated-redirect check, this should mostly be about
 visual polish, not functional surprises.
+
+### Block E, PRD-140 Item 4 (access provider + hook) - DONE
+
+Built `src/lib/auth/access.ts`, renamed to `src/lib/auth/access.tsx`
+after `npx tsc --noEmit` failed with a JSX parse error: the spec names
+the `.ts` extension, but `AccessProvider` is a component and needs JSX,
+which only `.tsx` parses. Same base name and import path either way
+(`@/lib/auth/access`), so nothing else needed to change.
+
+`getUserAccess(supabaseServerClient, userId)` (server) reads
+`v_my_access` with whatever server client it is handed. `AccessProvider`
+(client) fetches `v_my_access` once on mount via `useEffect`, caches the
+rows in context, exposes `has(key)`, `areas`, `loading`, and `refresh()`
+(an escape hatch not named in the spec but needed for a caller who just
+changed their own overrides). `useRequireArea(key, redirectTo?)` redirects
+to `/app` or `/field` (by the key's own prefix) once loaded and missing,
+and returns `false` (so the caller renders nothing) until it resolves.
+
+Mounted `AccessProvider` in both `src/app/(app)/layout.tsx` and
+`src/app/(field)/layout.tsx`, wrapping existing children (including the
+already-mounted `InventorySessionProvider`) without moving or renaming
+anything else in either file. No page reads `useAccess()`/
+`useRequireArea()` yet (that is Item 7), so this item is, as its own spec
+says, zero behaviour change for every existing page.
+
+Verified: `npx tsc --noEmit` and targeted `npx eslint` both clean (one
+pre-existing, unrelated warning confirmed via `git show HEAD:... | eslint
+--stdin` to already exist before this item's edit, at the same line,
+about the font `<style>` tag's own eslint-disable comment). Given this
+item touches the root layout for every `/app` and every `/field` page,
+ran a full `npm run build` as the highest-value check available: compiled
+successfully, typechecked clean, generated all 60 pages with no errors,
+including the new `/app/settings/users` route from Item 3.
