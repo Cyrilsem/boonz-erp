@@ -845,3 +845,15 @@ Rolled-back dry run (02:30): Red Bull - 355ML -> "0 pickable, 5 on hand: 0 quara
 before 01 Nov"; Santiveri - Coco Quinoa -> "0 pickable, 4 on hand: ..."; wh_fefo_for_line returns no
 lot for that Red Bull; validate_refill_plan compiles and runs. Rollback file prd141_06_rollback.sql.
 FE (day): pack screen max reads pickable_stock and DispatchEditDialog shows its message.
+
+### PRD-141 item 7 (receipt expiry edit moves the batch): prepared and dry-run proven
+
+edit_purchase_order_line (the RPC the PO line drawer calls; PRD-103 already allows a post-receipt expiry
+correction) only updated purchase_orders. Prepared supabase/prepared/prd141c/prd141_07_po_expiry_propagation.sql:
+after the update, Active in-stock warehouse rows of that PO line (batch_id po_id-<line8>-B<n>) that still
+carry the old expiry move to the new one, each logged to wh_batch_expiry_audit_log; the RPC returns
+wh_batches_updated. Only old-date rows move (154 of 1,067 PO-line batch groups hold several expiries).
+Spec name edit_po_line_expiry not created (would be a second writer for the same edit).
+Rolled-back dry run (02:35, warehouse manager): PO-2026-MSK5NQ1A Popit - Orange Squeeze line, expiry
+2027-12-29 -> 2027-11-30: wh_batches_updated 1, batch PO-2026-MSK5NQ1A-c36b3488-B1 (6 units) now
+2027-11-30, 1 audit row. FE (day): the drawer shows "N warehouse batches updated".
