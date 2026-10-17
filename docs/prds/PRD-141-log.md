@@ -758,6 +758,7 @@ what item 0 asks for, and a second writer for the same thing would be a duplicat
 
 Rolled-back dry run (2026-10-18 ~02:10, warehouse manager impersonated, WH2-2001-3000-O1 test
 machine, date today+3):
+
 - FE Add New of Vitamin Well - Antioxidant x4 on A01 (WEIMI: Tamreem, 6 on shelf): Add New row plus
   an auto Remove of Tamreem Dried Freeze Fruits - Mango x6, pod lot bound, status created.
 - Second Add New (Vitamin Well - Upgrade x2) on A01: status covered, no second Remove.
@@ -765,5 +766,36 @@ machine, date today+3):
   Santiveri, 3 on shelf): the function's own loop wrote 0 Removes (c_removed = 0, the A0 bug
   reproduced) and 3 Add New legs; the new hook wrote Remove of Santiveri - Coco Quinoa x3.
 - Add New of the same pod on A05 (Chocolate Bar lane): not_a_swap, no Remove.
-Rollback file: supabase/rollbacks/prd141_01_rollback.sql. Apply, FE reproduction on the test
-machine (warehouse session) and the Warehouse Confirmations proof are day-window work.
+  Rollback file: supabase/rollbacks/prd141_01_rollback.sql. Apply, FE reproduction on the test
+  machine (warehouse session) and the Warehouse Confirmations proof are day-window work.
+
+### PRD-141 items 2, 3, 4: prepared and dry-run proven (apply in the day window)
+
+Found: the screen the warehouse actually uses (Warehouse Confirmations, `wm_confirm_line` /
+`wm_confirm_line_split`) credits `machines.primary_warehouse_id`; 13 active machines have a venue
+primary (WH_MCC 9, WH_DFC 2, WH_MM 1, WH_MOE 1), which is A2. The older `wh_approve_remove_receipt`
+path credits `COALESCE(from_warehouse_id, primary_warehouse_id)` in receive_dispatch_line's Remove branch.
+Item 3 (`return-split-by-expiry`): the branch is contained in origin/main (merged; first loop rebased and
+confirmed zero diff); the FE sends `p_batch_breakdown` from Warehouse Confirmations and Dispatch Detail
+has ExpiryBreakdownDialog.
+
+Prepared: supabase/prepared/prd141c/prd141_02_04_return_wh_and_damaged.sql + rollback
+supabase/rollbacks/prd141_02_04_rollback.sql. New column refill_dispatching.return_warehouse_id
+(NULL = WH_CENTRAL); wm_confirm_line, wm_confirm_line_split, receive_dispatch_line (Remove branch)
+credit COALESCE(return_warehouse_id, WH_CENTRAL); multivariant children inherit it. return_dispatch_line
+unchanged (restores the packed batch row in place, a conservation invariant). Outcome 'damaged' on both
+wm_confirm functions: always a new row, provenance 'damaged_return' (enum extended), damage_source
+'transit'; `quarantined` generated expression (PG 17.6 SET EXPRESSION) now includes 'damaged_return',
+so the row is not pickable and appears on Admin > WH Quarantine; disposition_events state 'received'.
+Both wm_confirm functions took p_caller for the caller identity; replaced so p_caller is honoured only
+for postgres / service_role sessions (hard rule: role checks on auth.uid()).
+
+Rolled-back dry run (02:05, warehouse manager impersonated):
+- Remove of 5 on ACTIVATEMCC-1037 A08 (primary WH_MCC), driver-confirmed: appears in
+  v_wm_confirmations as source dispatch_return; wm_confirm_line restocked with breakdown
+  [3 x 2027-01-10, 2 x 2027-02-20] -> two new rows in WH_CENTRAL (3 and 2, provenance
+  dispatch_return, not quarantined). Item 2 and item 3 evidence.
+- Remove of 1 confirmed with outcome damaged -> new WH_CENTRAL row, provenance damaged_return,
+  quarantined true, damage_source transit, 0 rows in v_wh_pickable. Item 4 evidence.
+FE still needed (day): "Damaged" option in the Warehouse Confirmations outcome picker, write-off
+button for damaged rows on WH Quarantine (warehouse_damage_writeoff already exists).
