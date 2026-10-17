@@ -890,3 +890,20 @@ Rolled-back dry run (02:50): pending plan line "Hunter Cans" on AMZ-1038 A10 (WE
 40G): guard check mode before = 1 warned, after = 0 warned. Add New on WH2-2001 A01 opened relabel
 "A01 Tamreem Dried Freeze Fruits -> Vitamin Well (swap)"; mark_relabel_done as operator_admin -> done.
 FE (day): Config > Machines "Relabels" tab with the open list and a Done button.
+
+### PRD-141 item 23 (WEIMI drift report): report prepared; weekly auto-commit BLOCKED (permission)
+
+Prepared supabase/prepared/prd141c/prd141_23_weimi_drift_report.sql: v_pod_weimi_lane_drift (lanes where
+WEIMI and Active pod_inventory differ by more than 2 units, refill machines, snapshot under 48 h) and
+check_pod_weimi_drift() nightly at 03:50 Dubai (one alert row). Rolled-back read (02:55): 533 lanes on
+35 machines; worst AMZ-1038 16 lanes / 1,851 units, AMZ-1029 16 / 1,389, AMZ-1068 16 / 756,
+ACTIVATEMCC-2005 27 / 657, MC-2004 30 / 639. VML-1004 (the F3 example) has 11 drifting lanes, e.g.
+A02 Soft Drinks Mix WEIMI 5 vs pod_inventory 40. pod_inventory is mostly ABOVE WEIMI.
+Weekly auto-commit (spec: resync_pod_inventory_from_weimi weekly for machines with no open dispatch):
+BLOCKED (permission). The Claude Code auto-mode classifier refused to let this session create an
+unattended job that rewrites live pod quantities. Not worked around. Design for CS, ready to paste: a
+service_role-only function looping the drift machines that have no open dispatch line in the last 7
+days, calling resync_pod_inventory_from_weimi(machine, false) inside a per-machine exception block,
+cron '20 0 * * 0' (Sunday 04:20 Dubai), switch refill_policy_params.weekly_resync_enabled. Given the
+size of the drift (hundreds of units per AMZ machine) and the align_pod_lots_to_weimi job failing on
+unique-index collisions (99 failures in 3 days, scoping agent), a supervised first run is the safer path.
