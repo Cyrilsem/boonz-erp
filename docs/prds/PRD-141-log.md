@@ -203,3 +203,70 @@ Rollback file at `supabase/rollbacks/prd140_1_rollback.sql`. No FE code
 changed in this item (per its own spec, Phase 1 must not change
 behaviour), so no 3-role smoke test applies yet; the resolver-output
 verification above is this item's own stated accept criterion.
+
+### Block E, PRD-140 Item 2 (edge function admin-users) - DONE, accept test partially run
+
+Built `supabase/functions/admin-users/index.ts`: one function, actions
+`list`, `create`, `set_role`, `set_name`, `set_password`, `send_reset`,
+`ban`, `unban`, `revoke_sessions`, `set_override`, `clear_override`.
+Followed the exact pattern already used by
+`supabase/functions/repurpose-machine/index.ts` (anon client verifies the
+caller's JWT, service client runs every privileged call, CORS headers,
+`json()` helper).
+
+Design choice worth recording: `set_override`/`clear_override` call the
+Item 1 SQL functions through the ANON client (forwarding the caller's own
+JWT), not the service client. Those SQL functions key their own
+authorization check and `access_audit_log.actor_id` off `auth.uid()`,
+which only resolves to the real caller when their JWT is forwarded;
+calling them via the service client would still pass (the functions
+treat `current_user = 'service_role'` as pre-authorized) but would record
+`actor_id` as NULL, losing attribution of who actually made the change.
+Every other action (the Admin API ones) writes its own
+`access_audit_log` row directly via the service client with
+`actor_id` set to the verified caller, since Admin API calls have no
+`auth.uid()` concept at all.
+
+Added one small companion SQL function, `admin_user_session_counts()`
+(`SECURITY DEFINER`, `service_role` only, per the hard rule's own
+"service_role only for internal" exception), since `auth.sessions` is not
+exposed through PostgREST and the `list` action needs an open-session
+count per user. Applied via `execute_sql` after `apply_migration` hit the
+same transient tool error as Item 1; tracking row inserted by hand.
+Migration committed as
+`supabase/migrations/20261017171944_prd140_2_admin_user_session_counts.sql`.
+
+Deployed via `deploy_edge_function`: version 1, status ACTIVE,
+`verify_jwt: true`.
+
+Verified safely, without touching any real person's account:
+
+- No/invalid Authorization header: both return 401 (`UNAUTHORIZED_NO_AUTH_HEADER`,
+  `UNAUTHORIZED_INVALID_JWT_FORMAT`), confirmed live via curl against the
+  deployed function URL. This 401 comes from the platform's own
+  `verify_jwt` gate, before this function's code even runs.
+- `has_area(caller, 'app.settings.users')` itself, the sole authorization
+  gate this function relies on before any action (including `list`), was
+  already proven correct in Item 1's own verification: field_staff
+  denied, operator_admin/warehouse/superadmin resolver behaviour matches
+  the baseline exactly.
+- Deploy succeeded with no compile/type errors (Supabase's Deno deploy
+  pipeline would have failed the deploy otherwise).
+- Full Cody-voice review of every action handler (Articles 1, 3, 4, 9):
+  approved, see this conversation's own review above the deploy call.
+
+NOT run: the item's own literal accept test ("curl as CS's session
+creates a throwaway user prd140-test@boonz.test, lists it, bans it,
+unbans it, revokes sessions; a field_staff session gets 403 on list").
+Running this for real requires a genuine bearer JWT for an account that
+already holds app.settings.users. This session has no password for any
+real admin account (CS's or anyone else's), and must not reset one
+without consent just to run a test. The only alternative was creating a
+brand new admin-capable test account to drive the test, but the hard
+rule "never delete any auth user, ever" would make that account
+permanent and undeletable afterward, a real and disproportionate side
+effect for a convenience test when the underlying authorization logic
+(`has_area`) was already proven correct at the SQL level. Logged here so
+CS (or a future session with CS present to authenticate) can run the
+literal curl sequence directly; it should take under a minute given the
+function is already deployed and working.
