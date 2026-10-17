@@ -495,18 +495,18 @@ same lane and date, (b) `created_by_edit` (true = typed through the FE Add Produ
 row was created (holder = the slot_lifecycle row with first_seen_at before the dispatch row and not
 rotated out before it):
 
-| has Remove | FE Add Product | source | lane held | lanes |
-|---|---|---|---|---|
-| no | yes | warehouse | different pod | **10** |
-| no | yes | warehouse | nothing | 1 |
-| yes | yes | warehouse | different pod | 2 |
-| no | no (plan / writer) | warehouse | different pod | **17** |
-| yes | no | warehouse | different pod | 37 |
-| no | no | vox_at_venue | different pod | **20** |
-| yes | no | vox_at_venue | different pod | 10 |
-| no | no | warehouse | same pod | 16 |
-| no | no | warehouse | nothing | 30 |
-| no | no | vox_at_venue / m2m | same pod | 2 |
+| has Remove | FE Add Product     | source             | lane held     | lanes  |
+| ---------- | ------------------ | ------------------ | ------------- | ------ |
+| no         | yes                | warehouse          | different pod | **10** |
+| no         | yes                | warehouse          | nothing       | 1      |
+| yes        | yes                | warehouse          | different pod | 2      |
+| no         | no (plan / writer) | warehouse          | different pod | **17** |
+| yes        | no                 | warehouse          | different pod | 37     |
+| no         | no                 | vox_at_venue       | different pod | **20** |
+| yes        | no                 | vox_at_venue       | different pod | 10     |
+| no         | no                 | warehouse          | same pod      | 16     |
+| no         | no                 | warehouse          | nothing       | 30     |
+| no         | no                 | vox_at_venue / m2m | same pod      | 2      |
 
 Conclusion: the first loop's "no code-level gap" is wrong. `add_dispatch_row` (the RPC behind
 Refill > Add Product > Add New on Packing and Dispatch Detail) writes the Add New row and nothing
@@ -515,3 +515,71 @@ on 17 of 54 occupied-lane swaps, and the VOX venue path on 20 of 30. The Packing
 (`swap_shelf_pod`) is the only path that writes both legs. Item 1 (`ensure_swap_remove_leg` in
 `add_dispatch_row`, `write_refill_plan` and the FE) is required, plus item 0. Build scheduled for the
 day window (field functions); the FE reproduction on a test machine is done at build time.
+
+## Night block
+
+### PRD-138 WS-A - ALREADY DONE (bd13e1e)
+
+All 4 VOX era files plus the 3 Oct RLS files are on main from the first loop (commit bd13e1e). md5 of
+each file minus the repo's trailing newline equals `md5(array_to_string(statements, E'\n'))` in prod:
+082000 bf9b0bdb..., 082130 d186eaee..., 102943 98f64fb8..., 103012 2e97df9c..., 073741 83be203b...,
+074915 66e6fc9d..., 065707 964313e1.... Lengths 4,339 / 1,168 / 3,728 / 814 match the spec table.
+
+### PRD-138 WS-B = PRD-141 item 13 - DONE (migration 20261017210334)
+
+Design: new view `v_machine_eligibility` (one row per machine: flags_live, era_start =
+GREATEST(repurposed_at, relaunched_at Dubai date), in_repurpose_grace_window, sales_since_repurpose,
+is_eligible_machine, era_days). `v_live_shelf_stock.is_eligible_machine` reads it (anchor-guarded patch
+of the live body, one expression and one join). `v_shelf_sales_identity` clips sales to era_start,
+divides by era_days (LEAST 30, GREATEST 1), appends `era_days` and `thin_history`. Params added:
+`pick_urgency_params.repurpose_min_days` 3, `repurpose_min_sales` 10.
+
+Full-fleet diff, rolled-back transaction (DO block, RAISE at the end), 2026-10-18 ~01:00 Dubai:
+
+```
+elig_flips: VOXDFC-1001-0100-V0 false->true, VOXDFC-2006-0200-B0 false->true   (only these two)
+elig_counts: machines 45, eligible before 40, after 42
+v_shelf_sales_identity rows: before 597, after 612
+rows changed by machine (EXCEPT both ways, all original columns):
+  VOXDFC-1001 5 (new), VOXDFC-2006 10 (new), ACTIVATEMOE-2007 26, SAP-2002 50; every other machine 0
+era rows: SAP-2002 era 2026-10-10 era_days 8 thin true; VOXDFC-2006 2026-09-28 20 thin false;
+  VOXDFC-1001 2026-09-28 20 thin false; ACTIVATEMOE 2026-09-30 18 thin false
+v_machine_priority rows: 35 before, 35 after
+v_machine_eligibility_drift after: 0 rows
+```
+
+ACTIVATEMOE and SAP change only in dvel/dos: both relaunched inside 30 days (30 Sep, 10 Oct) and had
+zero sales between the window start and relaunch, so units are identical and the denominator moves from
+30 to 18 / 8. This is the spec's ACTIVATEMOE rule ("velocity window starts at relaunched_at") applied
+to the one other machine with the same shape. NISSAN-0804, ACTIVATE-2005, MPMCC-1054, MPMCC-1058,
+IFLYMCC-1024, LVLUP-1018: zero diffs.
+
+Cody review (this session, dependents enumerated live): v_live_shelf_stock has 34 dependent views
+and 35 functions mentioning it or is_eligible_machine. Consumers of v_shelf_sales_identity
+(v_expiry_pull_candidates, v_facing_performance_v3, v_lane_grain, v_machine_priority, v_shelf_holes,
+v_shelf_instock_velocity_v3, v_sizeup_candidates, check_machine_health_integrity,
+rank_slot_suitability, propose_facing_changes_v3, get_machine_slots_with_expiry) inherit the clip.
+Twelve consumers compute their own sales window: v_machine_service_priority, v_sizeup_candidates,
+v_shelf_instock_velocity_v3, v_pod_demand_dispersion_v3, rank_slot_suitability,
+compute_scoreboard_day_v3, auto_generate_refill_plan, compute_refill_decision,
+get_refill_plan_output_enriched, engine_swap_pod, get_machine_health, get_procurement_demand.
+Not clipped, documented why: (1) the numerator clip is a no-op on live data (0 successful sales between
+now()-30d and era_start for every machine whose era started inside the window, checked for all four);
+(2) for already-eligible machines their output is unchanged by this migration; (3) the two newly
+eligible machines are include_in_refill = false, so the planning functions never plan them. The
+residual effect is a flat-30 denominator in those twelve for 4 machines (velocity understated, the safe
+direction). Routing them through v_machine_eligibility.era_days is listed for PRD-142. Articles: no
+writes, no definer functions, grants explicit (anon has no SELECT on the new view), no overloads.
+
+Rollback: `UPDATE pick_urgency_params SET repurpose_min_sales = 999999;` (no DDL) or
+`supabase/rollbacks/prd138_wsb_rollback.sql` (held bodies).
+
+Post-apply: drift view 0 rows, 42 eligible, VOXDFC-1001 5 identity rows 50 units era 20,
+VOXDFC-2006 10 rows 153 units era 20, anon definers 0, anon SELECT on v_machine_eligibility false.
+
+Acceptance: (1) drift 0 rows PASS. (2) nonzero grades in v_machine_priority FAIL: both machines have
+graded rows in v_shelf_sales_identity / v_lane_grain but v_machine_priority filters
+include_in_refill and both are false (the VOX-filled set with VOXMCC-1012/1017, out of scope per
+PRD-141 section 4); thin_history is false because the era is now 20 days old (spec was written on day 5).
+(3) next plan includes them FAIL for the same flag. Flipping include_in_refill is an ops decision on a
+protected entity, left to CS.
