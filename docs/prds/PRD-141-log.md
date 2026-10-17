@@ -583,3 +583,29 @@ include_in_refill and both are false (the VOX-filled set with VOXMCC-1012/1017, 
 PRD-141 section 4); thin_history is false because the era is now 20 days old (spec was written on day 5).
 (3) next plan includes them FAIL for the same flag. Flipping include_in_refill is an ops decision on a
 protected entity, left to CS.
+
+### PRD-141 item 14 + PRD-138 WS-C.1 - DONE (migration 20261017210904)
+
+`v_machine_eligibility.is_eligible_machine` = (flags Live OR successful sales in the last 48 h >=
+`pick_urgency_params.live_by_sales_48h_min` (new, default 3)) AND the WS-B grace clause. New
+column `sales_48h`. `v_machine_eligibility_drift` now also returns selling machines whose labels are not
+Live, with `drift_reason` in ('label_not_live', 'in_repurpose_grace', 'selling but invisible to
+grading'); same columns and order as before. `check_machine_eligibility_drift()` (invoker) carries
+drift_reason into the alert payload.
+
+Rolled-back fleet diff: eligibility flips 0, v_shelf_sales_identity row diffs 0, drift rows 0,
+v_live_shelf_stock full read 40 ms. Spec test in the same rolled-back txn (ACTIVATEMOE flags set to
+Switched off / Pending Setup): ACTIVATEMOE stays eligible (105 sales in 48 h), keeps its 16 identity
+rows, and the drift view shows exactly one row `ACTIVATEMOE-2007-0000-B0 label_not_live`.
+Post-apply: drift 0 rows, 42 eligible, check_machine_eligibility_drift() status ok.
+Rollback: `UPDATE pick_urgency_params SET live_by_sales_48h_min = 999999;` or
+supabase/rollbacks/prd141_14_rollback.sql.
+
+### PRD-138 WS-C.2 and WS-C.3 - BLOCKED (permission)
+
+Both are edits to the scheduled drift routine prompt
+(`~/Documents/Claude/Scheduled/boonz-build-drift-check/SKILL.md`, outside the repo). The Claude Code
+auto-mode classifier denied this session's edit of another agent's instructions. Not worked around.
+The exact text (same-version fallback, 2026-09-12 to 09-15 consolidation exception, drift_reason
+reading for WS-C.1, index.lock sweep) is in `docs/prds/PRD-138-wsc-drift-routine-prompt.md` for CS
+to paste.
