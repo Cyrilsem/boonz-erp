@@ -161,3 +161,45 @@ so a future session with the real PRD-141 text can jump straight to
 implementation instead of re-deriving the mechanism.
 
 ## Item log
+
+### Block E, PRD-140 Item 1 (access catalog + resolver) - DONE
+
+This design was already fully built and Cody-reviewed in a prior PRD-140
+session (Articles 2, 3, 12 satisfied, plus this project's own stricter
+PUBLIC/anon-revoke rule) and preserved verbatim in that session's own log
+and in this conversation's own history. Re-applied here rather than
+redesigned.
+
+`apply_migration` hit the same transient tool error ("Invalid or expired
+requestState") it hit in the original PRD-140 session, twice. Applied
+instead via four sequential `execute_sql` calls (tables + seed data, RLS
+
+- select policies, the four functions, the view + remaining RLS
+  policies), each confirmed with a zero-row/empty success response before
+  moving to the next. Since `execute_sql` does not register a migration,
+  inserted the `supabase_migrations.schema_migrations` tracking row by
+  hand (version `20261017171239`, name `prd140_1_access_catalog`) with the
+  full statement text, to keep repo/prod parity.
+
+Verified against the Step 0 baseline table recorded in
+`docs/prds/PRD-140-log.md`, using the three real live users (not just
+reading `role_area_defaults`): `resolve_user_access()` for operator_admin
+(82bba4ee) returned all 46 catalog areas including `app.tracker` (owner
+email match); warehouse (885a89ff) returned exactly the 23 field.* areas
+minus `field.config.product_naming`, zero app.* areas; field_staff
+(bddaec3c) returned exactly the 7 field.* areas named in the baseline.
+All three match the Step 0 table exactly. Confirmed the authorization
+guard works: field_staff attempting to resolve warehouse's access raised
+`not authorized to resolve access for another user`, as designed.
+
+Confirmed grants: `anon` denied EXECUTE on all 4 functions and SELECT on
+the view; `authenticated` allowed on all of them. Confirmed
+`check_ambiguous_function_overloads()` still returns 0 ambiguous
+overloads and 0 anon-executable definers after this change.
+
+Migration committed as
+`supabase/migrations/20261017171239_prd140_1_access_catalog.sql`.
+Rollback file at `supabase/rollbacks/prd140_1_rollback.sql`. No FE code
+changed in this item (per its own spec, Phase 1 must not change
+behaviour), so no 3-role smoke test applies yet; the resolver-output
+verification above is this item's own stated accept criterion.
