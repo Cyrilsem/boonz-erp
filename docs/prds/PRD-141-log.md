@@ -874,3 +874,19 @@ top_up_on_transit_machines [AMZ-1029-3003-O1], line comment "dry run [top_up_on_
 (The first test line, A15 Al Ain Water - Regular, was rejected by the live item 10 gate:
 AMZ-1029's own mapping row f1c09ac7 has split 0.)
 FE (day): Home "In the van" card, Dispatching list badge, pack screen "Deliver with the bags of <date>".
+
+### PRD-141 items 21 and 22 (slot guard aliases, relabel queue): prepared and dry-run proven
+
+Found: the four named pairs already resolve on the WEIMI side through product_name_conventions
+(match_method conventions); the guard resolved the PLANNED name by exact pod_product_name only, so
+"Hunter Cans" vs "Hunter Canister 40G" was flagged (15 Oct critical alerts on AMZ-1038 A10, AMZ-1029
+A09, USH-1008 A14, AMZ-1038 A06; repeated 4-5 times each because of item 25). No relabel table existed.
+Prepared supabase/prepared/prd141c/prd141_21_22_slot_guard_relabels.sql (apply after prd141_01):
+weimi_relabel_requests (+ read policy, open_relabel_request / mark_relabel_done operator_admin RPCs),
+ensure_swap_remove_leg opens one per detected swap; assert_weimi_slot_match resolves the plan name through
+conventions and weimi_product_alias and exempts lanes with an open relabel and noted Add New on empty
+lanes. pod_product_aliases not created (would duplicate product_name_conventions).
+Rolled-back dry run (02:50): pending plan line "Hunter Cans" on AMZ-1038 A10 (WEIMI Hunter Canister
+40G): guard check mode before = 1 warned, after = 0 warned. Add New on WH2-2001 A01 opened relabel
+"A01 Tamreem Dried Freeze Fruits -> Vitamin Well (swap)"; mark_relabel_done as operator_admin -> done.
+FE (day): Config > Machines "Relabels" tab with the open list and a Done button.
