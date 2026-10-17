@@ -456,3 +456,62 @@ after this item's changes.
 Migration committed as
 `supabase/migrations/20261017174644_prd141_8_function_privilege_drift.sql`.
 Rollback at `supabase/rollbacks/prd141_8_rollback.sql`.
+
+---
+
+# PRD-141c log
+
+Lock taken 2026-10-18 00:55 Dubai (commit after 861a1e1 spec copy). Real specs copied verbatim from
+`../Claude outputs/` (PRD-138 7,562 bytes, PRD-141 20,202 bytes, cmp clean), placeholder overwritten.
+A peer session (boonz-erp-3f) holds an uncommitted local `PRD-142a.lock`; PRD-142 section 1.1 says
+142a coexists with PRD-141.lock, so this loop proceeds and never stages the peer's untracked files.
+
+## Step 0 baseline (2026-10-18 01:00 Dubai)
+
+- Migration head: `20261017174644 prd141_8_function_privilege_drift`.
+- Anon-executable SECURITY DEFINER functions in public: 0.
+- `v_machine_eligibility_drift`: 2 rows, VOXDFC-1001-0100-V0 (19 sales/7d) and VOXDFC-2006-0200-B0
+  (55 sales/7d), both `selling but invisible to grading`, repurposed_at 2026-09-28.
+- Cron 13 = job 78 `cron13_build_or_alert_v3` at 16:00 UTC = 20:00 Dubai. pick_machines job 14 at
+  02:00 UTC = 06:00 Dubai. Night-block applies before 06:00 Dubai land before both.
+- Add New without Remove since 2026-10-03, grain (machine_id, shelf_id, dispatch_date), shelf_id not
+  null: 155 lanes, 50 with a Remove on the same lane and date (the cited 153/48 plus 2 new lanes).
+  10 of the 155 are fully cancelled.
+- FE entry points:
+  - Add Product: `src/components/field/AddDispatchRowDialog.tsx:214-215` calls `driverAddFlaggedRow`
+    or `addDispatchRow` (`src/app/(field)/field/_actions/dispatch-edits.ts:358` and `:441`), RPCs
+    `add_dispatch_row` / `driver_add_flagged_row`. Mounted on Packing
+    `src/app/(field)/field/packing/[machineId]/page.tsx:5305` ("+ Add product" at :2702) and Dispatch
+    Detail `src/app/(field)/field/dispatching/[machineId]/page.tsx:2055` ("+ Add product" at :1399).
+  - Swap: Packing swap sheet `packing/[machineId]/page.tsx:5377`, submit at :2199 calls
+    `swap_shelf_pod`; decline at :2228 `decline_swap_pair`.
+  - Shelf View `src/app/(field)/field/shelf-view/[machineId]/page.tsx:280` mounts `AddProductDialog`.
+
+## Item 0 re-investigation, data evidence (not reasoning)
+
+Classified every non-cancelled Add New lane since 2026-10-03 by (a) whether a Remove exists on the
+same lane and date, (b) `created_by_edit` (true = typed through the FE Add Product dialog via
+`add_dispatch_row`), (c) `source_origin`, (d) what `slot_lifecycle` says the lane held when the Add New
+row was created (holder = the slot_lifecycle row with first_seen_at before the dispatch row and not
+rotated out before it):
+
+| has Remove | FE Add Product | source | lane held | lanes |
+|---|---|---|---|---|
+| no | yes | warehouse | different pod | **10** |
+| no | yes | warehouse | nothing | 1 |
+| yes | yes | warehouse | different pod | 2 |
+| no | no (plan / writer) | warehouse | different pod | **17** |
+| yes | no | warehouse | different pod | 37 |
+| no | no | vox_at_venue | different pod | **20** |
+| yes | no | vox_at_venue | different pod | 10 |
+| no | no | warehouse | same pod | 16 |
+| no | no | warehouse | nothing | 30 |
+| no | no | vox_at_venue / m2m | same pod | 2 |
+
+Conclusion: the first loop's "no code-level gap" is wrong. `add_dispatch_row` (the RPC behind
+Refill > Add Product > Add New on Packing and Dispatch Detail) writes the Add New row and nothing
+else; 10 of 12 FE-typed swaps on occupied lanes have no Remove. The plan writer path has the same gap
+on 17 of 54 occupied-lane swaps, and the VOX venue path on 20 of 30. The Packing Swap sheet
+(`swap_shelf_pod`) is the only path that writes both legs. Item 1 (`ensure_swap_remove_leg` in
+`add_dispatch_row`, `write_refill_plan` and the FE) is required, plus item 0. Build scheduled for the
+day window (field functions); the FE reproduction on a test machine is done at build time.
