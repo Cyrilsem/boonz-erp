@@ -813,3 +813,19 @@ Full-fleet rolled-back diff (02:15): 7,791 lines backfilled; days_since_visit un
 machines; only AMZ-1029-3003-O1 moves 1 -> 3 (its 16 Oct bags: 18 lines packed and picked up, never
 received; last real delivery 14 Oct), p_tier_aed P2 -> P1, tier star unchanged. That is the spec
 acceptance: days_since_visit does not move until receive_dispatch_line. View read 1.6 s.
+
+### PRD-141 item 5 (M2M visibility): prepared and dry-run proven (apply in the day window)
+
+Found: v_wm_confirmations deliberately excludes paired M2M Remove legs; the only FE caller of
+approve_m2m_transfer (PendingRemoveApprovalsPanel) is imported by nothing; approve_m2m_transfer
+receives both legs at the PLANNED quantity, and its pair check compares planned quantities, which a
+trigger syncs to the driver count on the Remove, so a partial transfer could never be approved.
+Note on the cited case: the 14 Oct McVities x7 left VML-1004 for ACTIVATEMCC-1037 (not AMZ-1038) and
+both legs were auto-approved at 09:25:16, so the warehouse never saw it.
+Prepared supabase/prepared/prd141c/prd141_05_m2m_visibility.sql (+ rollback): acknowledge-only queue
+source 'm2m_transfer' (from 2026-10-18 on), wm_confirm_line ack branch, approve_m2m_transfer receives at
+driver-confirmed quantities, pair check only while unconfirmed, caller = auth.uid().
+Rolled-back dry run (02:25): Remove McVities x7 on ACTIVATEMCC-1037 A08 paired to Add New on VML-1004
+A01, driver confirmed 6: queue shows 1 line, source m2m_transfer, qty 6; wm_confirm_line acknowledged
+-> line gone; approve_m2m_transfer -> approved, pair_qty 6, wh_delta 0, destination pod 0 -> 6,
+destination filled_quantity 6.
