@@ -857,3 +857,20 @@ Spec name edit_po_line_expiry not created (would be a second writer for the same
 Rolled-back dry run (02:35, warehouse manager): PO-2026-MSK5NQ1A Popit - Orange Squeeze line, expiry
 2027-12-29 -> 2027-11-30: wh_batches_updated 1, batch PO-2026-MSK5NQ1A-c36b3488-B1 (6 units) now
 2027-11-30, 1 audit row. FE (day): the drawer shows "N warehouse batches updated".
+
+### PRD-141 items 17 and 18 (in the van, top-up tag): prepared and dry-run proven
+
+Prepared supabase/prepared/prd141c/prd141_17_18_in_transit.sql: v_machine_pack_status appends
+in_transit_n, in_transit_units, in_transit (packed, picked up, not received, not returned, no driver
+outcome, fill actions, dispatch_date within the last 7 days); write_refill_plan appends
+"[top_up_on_transit <date>]" as a comment suffix and returns top_up_on_transit_machines.
+First dry run without the window surfaced 56 legacy undelivered rows from 31 Mar to 30 Sep
+(e.g. AMZ-1057 17 May 46 lines / 145 units, AMZ-1029 17 May 37 / 153, HUAWEI 16 Apr 12 / 41) plus
+JET-1016 / NOVO-1023 10 Oct and MPMCC-1054 / 1058 9 Oct: data debt (deliveries never confirmed in the
+app), listed for PRD-142 cleanup, not shown as "in the van".
+Rolled-back dry run (02:45): in transit = AMZ-1029 16 Oct 18 lines / 41 units, VML-1004 14 Oct 1 / 4.
+write_refill_plan for AMZ-1029 on 20 Oct (A13 Coca Cola Mix / Coca Cola - Regular x5): status ok,
+top_up_on_transit_machines [AMZ-1029-3003-O1], line comment "dry run [top_up_on_transit 2026-10-16]".
+(The first test line, A15 Al Ain Water - Regular, was rejected by the live item 10 gate:
+AMZ-1029's own mapping row f1c09ac7 has split 0.)
+FE (day): Home "In the van" card, Dispatching list badge, pack screen "Deliver with the bags of <date>".
