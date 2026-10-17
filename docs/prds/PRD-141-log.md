@@ -694,3 +694,18 @@ VML-1004 A16 returns validation_error / G11_mapping_blocks: "Refill Dubai Popcor
 on VML-1004-0500-O1 A16 is blocked by the machine mapping row 3fb0a793-... (split_pct 0.00, status
 Active, split_zero). Set split above 0 ...". Overload check 0. Grants unchanged.
 Rollback: supabase/rollbacks/prd141_10_rollback.sql.
+
+### PRD-141 item 11 (mapping hygiene) - DONE (migration 20261017214206); promotion list awaits CS
+
+Normalisation applied (behaviour-neutral, proven in a rolled-back dry run and then live): 90 Active
+pod groups off 100 (88 machine, 2 global; worst: Snack Bar single rows at 15 on six machines, Pepsi
+Mix single rows at 50, LVLUP Soft Drinks Mix 40), 375 rows rewritten, largest remainder in
+numeric(6,2); after: 0 groups off; max change in any row's share of its group 0.0074 percentage
+points; 0 zero rows touched; 0 non-zero rows became zero. All consumers divide by the group total and
+the only absolute test is split_pct > 0. Old values in `prd141_mapping_split_backup` (375 rows,
+service_role only, RLS on). Nightly `check_mapping_split_sums()` (invoker, anon revoked), cron job 89
+`prd141_mapping_split_sums_0340_dubai` at 23:40 UTC; first manual run: status ok.
+Promotion of machine-only SKUs (spec said 27; live count 30 pairs on 2+ machines, 34 machine-only
+SKUs in all) is a variant-adding change, so it is a list for CS approval, not applied:
+docs/prds/PRD-141-mapping-hygiene-list.md (with a recommendation and the apply SQL).
+Rollback: supabase/rollbacks/prd141_11_rollback.sql.
