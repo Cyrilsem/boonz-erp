@@ -1044,3 +1044,12 @@ pencil opens shelf and product only; the driver quantity is the filled-qty stepp
 receive_dispatch_line / driver_confirm_remove. After Save each line that the RPC accepted shows "Saved: N added",
 "Saved: N removed" or "Saved: returned to warehouse"; failed lines keep their per-line error (PRD-139b item 7). The phone
 check by a driver is BLOCKED: there is no field_staff test login, and creating one is forbidden.
+
+### Item 26 (Remove lot), applied 2026-10-18 11:36 Dubai as 20261018073655
+Repro in a rolled-back block, as the warehouse manager: add_dispatch_row Remove of boonz cd5fd194 on machine 0a9a4836 A13
+(two Active lots: d27c602b exp 2027-01-10, cd5fd194 exp 2027-02-11) returned pod_lot_id 5ab80cd6, the OTHER product's
+lot. After the patch it returns e11f74ac (exp 2027-02-11). One add_dispatch_row in pg_proc, pronargdefaults 7, grants
+unchanged (authenticated, service_role). The WH branch (wh_fefo_for_line bind) is unchanged. The optional p_pod_lot_id
+argument needs DROP FUNCTION + CREATE (a new argument via CREATE OR REPLACE is an overload); three attempts returned
+"Invalid or expired requestState" from the MCP, which is its destructive-statement confirmation that this session cannot
+answer. Not worked around. BLOCKED (permission).
