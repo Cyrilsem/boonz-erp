@@ -100,6 +100,8 @@ export default function DispatchingDetailPage() {
   const [machine, setMachine] = useState<MachineInfo | null>(null);
   const [lines, setLines] = useState<DispatchLine[]>([]);
   const [invWarnings, setInvWarnings] = useState<Record<string, string>>({});
+  // PRD-141 item 20: per-line "Saved" confirmation, from this Save's RPC results.
+  const [savedLines, setSavedLines] = useState<Record<string, string>>({});
   // PRD-139b Item 7: confirmed-write counts and failure list for the Save summary
   // banner, built from actual RPC results during the save loop below -- never from
   // local line.action intent alone.
@@ -776,6 +778,7 @@ export default function DispatchingDetailPage() {
     setSaving(true);
     const supabase = createClient();
     let totalReturnDelta = 0;
+    const savedNow: Record<string, string> = {};
     // PRD-139b Item 7: built from actual RPC results this run, never from local
     // line.action intent. The Save summary banner reads these, not addedCount/
     // returnedCount, so it can never show green "all added" when something failed.
@@ -854,6 +857,9 @@ export default function DispatchingDetailPage() {
           }
         } else {
           addedOk += 1;
+          savedNow[line.dispatch_id] = isRemove
+            ? `Saved: ${line.filled_qty} removed`
+            : `Saved: ${line.filled_qty} added`;
           if (rpcData) {
             const result = rpcData as { return_delta?: number | string };
             const delta = Number(result.return_delta ?? 0);
@@ -927,6 +933,7 @@ export default function DispatchingDetailPage() {
           returnedOk += 1;
         } else {
           returnedOk += 1;
+          savedNow[line.dispatch_id] = "Saved: returned to warehouse";
           const returnQty = Number(
             (rpcData as { return_qty?: number | string } | null)?.return_qty ??
               0,
@@ -966,6 +973,7 @@ export default function DispatchingDetailPage() {
     // caching beyond the per-line local state above.
     await fetchData();
 
+    setSavedLines(savedNow);
     setConfirmedAdded(addedOk);
     setConfirmedReturned(returnedOk);
     setSaveFailures(failures);
@@ -1492,10 +1500,14 @@ export default function DispatchingDetailPage() {
                                   line.pod_product_name ??
                                   "—",
                                 source_kind: "unknown",
-                                allowed_tabs: ["qty", "shelf", "product"],
+                                // PRD-141 item 20: every line here is packed, and
+                                // edit_dispatch_qty refuses packed lines and
+                                // field_staff, so a qty tab could never save. The
+                                // quantity is the stepper below, saved on Save.
+                                allowed_tabs: ["shelf", "product"],
                               })
                             }
-                            title="Edit qty / shelf / product"
+                            title="Edit shelf / product"
                             aria-label="Edit dispatch row"
                             className="flex h-6 w-6 items-center justify-center rounded-full border border-neutral-200 text-neutral-500 transition-colors hover:bg-neutral-50 hover:text-neutral-700 dark:border-neutral-700 dark:text-neutral-400 dark:hover:bg-neutral-800"
                           >
@@ -1549,6 +1561,11 @@ export default function DispatchingDetailPage() {
                     {invWarning && (
                       <p className="mb-2 text-xs text-amber-600 dark:text-amber-400">
                         {invWarning}
+                      </p>
+                    )}
+                    {!invWarning && savedLines[line.dispatch_id] && (
+                      <p className="mb-2 text-xs font-medium text-emerald-700 dark:text-emerald-400">
+                        ✓ {savedLines[line.dispatch_id]}
                       </p>
                     )}
 

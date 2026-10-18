@@ -1035,3 +1035,12 @@ reject_plan_lines on AMZ-1029 16 Oct rejected the 7 still-pending rows in 23 ms 
 RefillPlanReview machine reject and line reject call reject_plan_lines (machine_id looked up by official_name), keep the
 rows and show "Reject failed: ..." on error. Note for gates: a watchdog raises "migration_in_window" for each daytime
 migration; the day block is where the goal puts these items, so these are expected.
+
+### Item 20 (Dispatch Detail quantity edits), 2026-10-18 10:55 Dubai
+Read in prod: edit_dispatch_qty allows only warehouse / operator_admin / superadmin / manager and raises on any packed
+line; Dispatch Detail shows only picked-up (packed) lines, so the driver pencil "qty" tab always failed (the Jojo "it will
+not save" report). edit_dispatch_shelf and edit_dispatch_product allow field_staff. Fix (FE only): the Dispatch Detail
+pencil opens shelf and product only; the driver quantity is the filled-qty stepper, which Save sends through
+receive_dispatch_line / driver_confirm_remove. After Save each line that the RPC accepted shows "Saved: N added",
+"Saved: N removed" or "Saved: returned to warehouse"; failed lines keep their per-line error (PRD-139b item 7). The phone
+check by a driver is BLOCKED: there is no field_staff test login, and creating one is forbidden.
