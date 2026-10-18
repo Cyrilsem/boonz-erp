@@ -192,7 +192,7 @@ This table is updated after every item.
 
 | PRD / item               | Status               | Evidence / migration                                                                                           |
 | ------------------------ | -------------------- | -------------------------------------------------------------------------------------------------------------- |
-| 141 item 0 (Swap option) | IN PROGRESS (day)    | Data evidence logged: FE Add Product writes Add New with no Remove on 10 of 12 occupied-lane swaps             |
+| 141 items 0 and 1 (swap integrity) | DONE | 20261018055751 + hotfix 20261018060733; FE reproduction on WH2-2001: Add New and Swap pod both now write the Remove leg; Warehouse Confirmations shows it |
 | 138 WS-A                 | ALREADY DONE         | bd13e1e, md5 equal for all 7 files                                                                             |
 | 138 WS-B = 141 item 13   | DONE                 | 20261017210334; only VOXDFC-1001/2006 flip; drift 0 rows                                                       |
 | 141 item 14              | DONE                 | 20261017210904; ACTIVATEMOE stays eligible with flags removed (rolled-back test)                               |
