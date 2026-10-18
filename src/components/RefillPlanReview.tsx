@@ -295,19 +295,19 @@ export function RefillPlanReview({ selectedDate }: { selectedDate?: string }) {
         setTimeout(() => setPlanToast(null), 5000);
       }
     } else {
-      // TODO(Batch 5 / RC-04): needs a canonical reject_refill_plan RPC.
-      // No RPC currently rejects refill_plan_output rows at machine level, so
-      // this direct UPDATE is intentionally LEFT AS-IS to avoid breaking the
-      // reject capability. Replace with the canonical RPC once it exists.
-      await supabase
-        .from("refill_plan_output")
-        .update({
-          operator_status: status,
-          reviewed_at: new Date().toISOString(),
-          operator_comment: comment || null,
-        })
-        .eq("machine_name", machineName)
-        .eq("operator_status", "pending");
+      // PRD-141 item 24: reject_plan_lines rejects only this date's pending
+      // rows (the old direct UPDATE had no plan_date filter).
+      const err = await rejectPlanLines(machineName, null, comment);
+      if (err) {
+        setPlanToast(`Reject failed: ${err}`);
+        setTimeout(() => setPlanToast(null), 5000);
+        setPlanProcessing((prev) => {
+          const s = new Set(prev);
+          s.delete(machineName);
+          return s;
+        });
+        return;
+      }
     }
 
     setPlanRows((prev) => prev.filter((r) => r.machine_name !== machineName));
@@ -319,18 +319,39 @@ export function RefillPlanReview({ selectedDate }: { selectedDate?: string }) {
     setPlanExpanded((prev) => (prev === machineName ? null : prev));
   }
 
-  async function handlePlanRejectLine(id: string) {
+  // PRD-141 item 24: one RPC for machine and line rejects. Returns an error
+  // message, or null when the rows were rejected.
+  async function rejectPlanLines(
+    machineName: string,
+    lineIds: string[] | null,
+    reason: string,
+  ): Promise<string | null> {
+    if (!planDate) return "no plan date loaded";
     const supabase = createClient();
-    // TODO(Batch 5 / RC-04): needs a canonical reject_refill_plan (per-row) RPC.
-    // Left as a direct UPDATE for now — no canonical rejecter exists and we must
-    // not break per-line reject. Rewire once the RPC lands.
-    await supabase
-      .from("refill_plan_output")
-      .update({
-        operator_status: "rejected",
-        reviewed_at: new Date().toISOString(),
-      })
-      .eq("id", id);
+    const { data: m } = await supabase
+      .from("machines")
+      .select("machine_id")
+      .eq("official_name", machineName)
+      .maybeSingle();
+    if (!m) return `machine ${machineName} not found`;
+    const { error } = await supabase.rpc("reject_plan_lines", {
+      p_plan_date: planDate,
+      p_machine_id: m.machine_id,
+      p_line_ids: lineIds,
+      p_reason: reason || null,
+    });
+    return error ? error.message : null;
+  }
+
+  async function handlePlanRejectLine(id: string) {
+    const row = planRows.find((r) => r.id === id);
+    if (!row) return;
+    const err = await rejectPlanLines(row.machine_name, [id], "");
+    if (err) {
+      setPlanToast(`Reject failed: ${err}`);
+      setTimeout(() => setPlanToast(null), 5000);
+      return;
+    }
     setPlanRows((prev) => prev.filter((r) => r.id !== id));
   }
 

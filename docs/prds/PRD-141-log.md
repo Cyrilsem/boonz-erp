@@ -1026,3 +1026,12 @@ and to pod, source); Mark done calls mark_relabel_done and shows only for operat
 Report only. v_pod_weimi_lane_drift: 534 lanes on 35 machines differ by more than 2 units. check_pod_weimi_drift
 scheduled as cron job 90, 23:50 UTC (03:50 Dubai), writes one monitoring_alerts row. The weekly auto-commit stays BLOCKED
 (permission), as recorded earlier.
+
+### Items 24 and 25 (reject_plan_lines, one push per machine), applied 2026-10-18 10:44 Dubai as 20261018064411
+Live trigger checked before apply (row-level, WHEN approved and not dispatched, body identical to the prepared
+assumption). Rolled-back tests as CS: approving 5 undispatched AMZ-1038 16 Oct rows in one statement left
+app.rpc_name = push_plan_to_dispatch (the push ran) with 0 new alerts; rows already dispatched are skipped, as before;
+reject_plan_lines on AMZ-1029 16 Oct rejected the 7 still-pending rows in 23 ms and left none pending. FE:
+RefillPlanReview machine reject and line reject call reject_plan_lines (machine_id looked up by official_name), keep the
+rows and show "Reject failed: ..." on error. Note for gates: a watchdog raises "migration_in_window" for each daytime
+migration; the day block is where the goal puts these items, so these are expected.
