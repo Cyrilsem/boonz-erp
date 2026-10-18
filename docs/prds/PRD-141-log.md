@@ -1021,3 +1021,8 @@ weimi_relabel_requests; assert_weimi_slot_match has relabel_pending_exempt; open
 exist once each, not anon-executable. Rolled-back run on the 16 Oct plan: 15 checked, 0 blocked, 1 warned (18 Oct and 19
 Oct return 0 checked, no pending lines). FE: Config > Machines "Relabels" tab lists open requests (machine, lane, from
 and to pod, source); Mark done calls mark_relabel_done and shows only for operator_admin and superadmin.
+
+### Item 23 (pod vs WEIMI drift report), applied 2026-10-18 10:43 Dubai as 20261018064308
+Report only. v_pod_weimi_lane_drift: 534 lanes on 35 machines differ by more than 2 units. check_pod_weimi_drift
+scheduled as cron job 90, 23:50 UTC (03:50 Dubai), writes one monitoring_alerts row. The weekly auto-commit stays BLOCKED
+(permission), as recorded earlier.
