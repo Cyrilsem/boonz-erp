@@ -1053,3 +1053,13 @@ unchanged (authenticated, service_role). The WH branch (wh_fefo_for_line bind) i
 argument needs DROP FUNCTION + CREATE (a new argument via CREATE OR REPLACE is an overload); three attempts returned
 "Invalid or expired requestState" from the MCP, which is its destructive-statement confirmation that this session cannot
 answer. Not worked around. BLOCKED (permission).
+
+### Item 27 (approve per machine), applied 2026-10-18 11:40 Dubai as 20261018074026
+Rolled-back test as CS, 16 Oct, three machines (AMZ-1038 rejected rows set back to pending inside the test): result
+status "error", "2 machine(s) failed, none approved", results AMZ-1029 G8 (Al Ain Water need 2, free 0), AMZ-1038 G8 x2
+(Vitamin Well Hydrate need 3 free 1; Al Ain Water), IFLYMCC nothing_pending. Before the patch the same call returned
+one error for the whole batch. A partial-success case could not be built on live data (G8 still blocked AMZ-1029 after
+removing its Al Ain line in the test); the ok branch re-wraps the unchanged single-machine path. One approve_refill_plan
+in pg_proc. FE: RefillPlanningTab approvePlan read only the RPC error and always said "Plan approved" (a gate failure
+returns status error without raising); it now shows "Approval failed: <machine>: <gate>" or "Partly approved (...)",
+and keeps the plan on screen. RefillPlanReview single-machine approve also reads status "error" and keeps the rows.

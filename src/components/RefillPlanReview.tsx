@@ -273,13 +273,30 @@ export function RefillPlanReview({ selectedDate }: { selectedDate?: string }) {
       // RPC, which sets operator_status='approved' and fires
       // trg_fire_dispatch_on_approval -> push_plan_to_dispatch. Backward-safe:
       // approve_refill_plan exists on the current live backend.
-      const { error: approveErr } = await supabase.rpc("approve_refill_plan", {
-        p_plan_date: planDate,
-        p_machine_names: [machineName],
-      });
-      if (approveErr) {
-        setPlanToast(`Approve failed: ${approveErr.message}`);
-        setTimeout(() => setPlanToast(null), 5000);
+      const { data: approveData, error: approveErr } = await supabase.rpc(
+        "approve_refill_plan",
+        {
+          p_plan_date: planDate,
+          p_machine_names: [machineName],
+        },
+      );
+      // PRD-141 item 27: a gate failure comes back as status "error", not as
+      // an RPC error, so read the status too and keep the rows on screen.
+      const approveResult = approveData as {
+        status?: string;
+        error?: string;
+      } | null;
+      if (approveErr || approveResult?.status === "error") {
+        setPlanToast(
+          `Approve failed: ${approveErr?.message ?? approveResult?.error ?? "unknown error"}`,
+        );
+        setTimeout(() => setPlanToast(null), 8000);
+        setPlanProcessing((prev) => {
+          const s = new Set(prev);
+          s.delete(machineName);
+          return s;
+        });
+        return;
       } else if (planDate) {
         // Idempotent explicit push preserves the existing dispatch-result toast
         // (push_plan_to_dispatch no-ops if the approval trigger already pushed).

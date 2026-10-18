@@ -1336,8 +1336,26 @@ export function RefillPlanningTab({
     }
     const result = data as {
       status?: string;
+      error?: string;
       dispatching_rows_written?: number;
+      results?: { machine: string; status: string; error?: string }[];
     } | null;
+    // PRD-141 item 27: approve_refill_plan reports per machine; status is
+    // "ok", "partial" or "error" and failures never raise an RPC error.
+    const failed = (result?.results ?? []).filter((r) => r.status === "error");
+    if (result?.status === "error" || result?.status === "partial") {
+      const detail = failed.length
+        ? failed.map((r) => `${r.machine}: ${r.error ?? "failed"}`).join("; ")
+        : (result?.error ?? "unknown error");
+      setApproveResult({
+        ok: false,
+        msg:
+          result.status === "partial"
+            ? `Partly approved (${result.dispatching_rows_written ?? 0} dispatching lines written). Not approved: ${detail}`
+            : `Approval failed: ${detail}`,
+      });
+      return;
+    }
     setApproveResult({
       ok: true,
       msg: `Plan approved — ${result?.dispatching_rows_written ?? 0} dispatching lines written for ${selectedDate}`,
