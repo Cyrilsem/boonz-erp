@@ -23,6 +23,8 @@ interface DispatchMachine {
   dispatched_count: number;
   all_dispatched: boolean;
   lines: DispatchLineInfo[];
+  /** PRD-141 item 17: undelivered bags from an earlier day, still in the van. */
+  older_in_transit: { date: string; bags: number } | null;
 }
 
 function formatShortDate(dateStr: string): string {
@@ -67,6 +69,27 @@ export default function DispatchingPage() {
       .select("machine_id, is_pickup_complete")
       .eq("dispatch_date", today)
       .limit(10000);
+    // PRD-141 item 17: bags from an earlier day that were never delivered.
+    const { data: olderTransit } = await supabase
+      .from("v_machine_pack_status")
+      .select("machine_id, dispatch_date, in_transit_n")
+      .eq("in_transit", true)
+      .lt("dispatch_date", today)
+      .limit(10000);
+    const olderTransitByMachine = new Map<
+      string,
+      { date: string; bags: number }
+    >();
+    for (const t of olderTransit ?? []) {
+      const prev = olderTransitByMachine.get(t.machine_id as string);
+      olderTransitByMachine.set(t.machine_id as string, {
+        date:
+          prev && prev.date < (t.dispatch_date as string)
+            ? prev.date
+            : (t.dispatch_date as string),
+        bags: (prev?.bags ?? 0) + Number(t.in_transit_n ?? 0),
+      });
+    }
     const pickupCompleteByMachine = new Map<string, boolean>(
       (statusRows ?? []).map((s) => [
         s.machine_id as string,
@@ -138,6 +161,7 @@ export default function DispatchingPage() {
         total: m.total,
         dispatched_count: m.dispatched_count,
         all_dispatched: m.dispatched_count === m.total,
+        older_in_transit: olderTransitByMachine.get(m.machine_id) ?? null,
         lines: m.lines.sort((a, b) =>
           (a.shelf_code ?? "").localeCompare(b.shelf_code ?? ""),
         ),
@@ -257,6 +281,12 @@ export default function DispatchingPage() {
                       )}
                     </div>
                   </div>
+                  {machine.older_in_transit && (
+                    <span className="shrink-0 rounded-full bg-red-100 px-2 py-0.5 text-[11px] font-semibold text-red-800">
+                      +{machine.older_in_transit.bags} bags from{" "}
+                      {formatShortDate(machine.older_in_transit.date)}
+                    </span>
+                  )}
                   <span className="shrink-0 rounded-full bg-[#faf3e3] px-2.5 py-0.5 text-xs font-semibold text-[#b45309]">
                     {machine.dispatched_count}/{machine.total}
                   </span>

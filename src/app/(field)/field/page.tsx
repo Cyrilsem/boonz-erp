@@ -257,6 +257,66 @@ function StatCard({
   );
 }
 
+// ─── In the van (PRD-141 item 17) ────────────────────────────────────────────
+// Packed bags picked up and not yet delivered or returned, from
+// v_machine_pack_status.in_transit (last 7 days). A bag from an earlier day is
+// shown in red so it is delivered before anything new is packed for it.
+
+type InTransitRow = {
+  machine_id: string;
+  machine_name: string;
+  dispatch_date: string;
+  in_transit_n: number;
+  in_transit_units: number;
+};
+
+function InTransitCard() {
+  const [rows, setRows] = useState<InTransitRow[]>([]);
+  useEffect(() => {
+    const supabase = createClient();
+    supabase
+      .from("v_machine_pack_status")
+      .select(
+        "machine_id, machine_name, dispatch_date, in_transit_n, in_transit_units",
+      )
+      .eq("in_transit", true)
+      .order("dispatch_date", { ascending: true })
+      .limit(10000)
+      .then(({ data }) => setRows((data as InTransitRow[] | null) ?? []));
+  }, []);
+  if (rows.length === 0) return null;
+  const today = todayISO();
+  return (
+    <SectionCard title="In the van" linkTo="/field/dispatching">
+      <ul className="space-y-1">
+        {rows.map((r) => {
+          const ageDays = Math.round(
+            (new Date(today + "T00:00:00").getTime() -
+              new Date(r.dispatch_date + "T00:00:00").getTime()) /
+              86400000,
+          );
+          return (
+            <li
+              key={`${r.machine_id}-${r.dispatch_date}`}
+              className={`flex items-center justify-between rounded-lg px-2 py-1 text-sm ${
+                ageDays > 0 ? "bg-red-50 text-red-800" : "text-gray-700"
+              }`}
+            >
+              <span className="truncate">{r.machine_name}</span>
+              <span className="shrink-0 text-xs">
+                {r.in_transit_n} bags, {Number(r.in_transit_units)} units
+                {ageDays > 0
+                  ? `, from ${r.dispatch_date} (${ageDays}d)`
+                  : ", today"}
+              </span>
+            </li>
+          );
+        })}
+      </ul>
+    </SectionCard>
+  );
+}
+
 // ─── Skeleton ─────────────────────────────────────────────────────────────────
 
 function Skeleton() {
@@ -311,6 +371,8 @@ function WarehouseHome({
         {getGreeting()}, {user.full_name ?? "Warehouse"}
       </h1>
       <p className="mb-4 text-sm text-neutral-500">{formatToday()}</p>
+
+      <InTransitCard />
 
       {/* ── Section 1: Daily Refills ── */}
       <SectionCard
@@ -580,6 +642,8 @@ function DriverHome({
       </h1>
       <p className="mb-4 text-sm text-neutral-500">{formatToday()}</p>
 
+      <InTransitCard />
+
       {/* ── Section 1: Today's Route ── */}
       <SectionCard
         title="Today's Route"
@@ -750,6 +814,8 @@ function OperatorAdminHome({
         {getGreeting()}, {user.full_name ?? "Operator"}
       </h1>
       <p className="mb-4 text-sm text-neutral-500">{formatToday()}</p>
+
+      <InTransitCard />
 
       {/* ── Section 1: Daily Refills ── */}
       <SectionCard

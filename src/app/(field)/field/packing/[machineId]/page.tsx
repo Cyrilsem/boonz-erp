@@ -2617,6 +2617,17 @@ export default function PackingDetailPage() {
   // SWAP/REPLACES/ROTATE-flavor comments). Pull those out into a dedicated section
   // so the warehouse manager can see them clearly separated from plain refills.
   const swapCommentPattern = /SWAP\s*(OUT|IN)|REPLACES|ROTATE\s*OUT/i;
+  // PRD-141 item 18: write_refill_plan tags every line of a machine that still
+  // has undelivered bags from an earlier day with "[top_up_on_transit <date>]".
+  const topUpOnTransitDate =
+    lines
+      .map(
+        (l) =>
+          /\[top_up_on_transit (\d{4}-\d{2}-\d{2})\]/.exec(
+            l.dispatch_comment ?? "",
+          )?.[1],
+      )
+      .find((d) => !!d) ?? null;
   const swapStyleRefills = refillLines.filter(
     (l) => l.dispatch_comment && swapCommentPattern.test(l.dispatch_comment),
   );
@@ -2741,6 +2752,12 @@ export default function PackingDetailPage() {
       {isTomorrow && (
         <div className="mt-4">
           <PackAheadBanner selectedDate={selectedDate} />
+        </div>
+      )}
+      {topUpOnTransitDate && (
+        <div className="mt-4 rounded-lg border border-amber-300 bg-amber-50 px-3 py-2 text-sm font-medium text-amber-900">
+          Deliver with the bags of {topUpOnTransitDate}: this machine still has
+          undelivered bags in the van, this plan is a top-up.
         </div>
       )}
 

@@ -15,3 +15,5 @@ BEGIN
 END $rb$;
 REVOKE EXECUTE ON FUNCTION public.write_refill_plan(date, jsonb) FROM public, anon;
 GRANT EXECUTE ON FUNCTION public.write_refill_plan(date, jsonb) TO authenticated, service_role;
+-- FE part (Home In the van card, dispatching badge, pack-screen top-up banner): git revert the commit
+-- "feat(prd-141): items 17 and 18 in-transit bags and top-up tag". Revert FE first, then run the SQL above.

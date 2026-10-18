@@ -1000,3 +1000,11 @@ was not exercised on prod because it reserves real warehouse stock.
 Source: machines_to_visit status in ('picked','cs_added'), is_included, plan_date = selected date (picker output; gate0
 manual confirm is off so these are the day's named machines). 18 Oct: 8 named, 3 with dispatch rows, so 5 red cards.
 The empty-state early return now still shows named machines. Refill rows query gained .limit(10000).
+
+### Items 17 and 18 (in transit, top-up tag), applied 2026-10-18 10:36 Dubai as 20261018063550
+Prepared file applied unchanged (anchors held). Read-back: write_refill_plan contains top_up_on_transit; view 1,600 rows,
+reloptions unchanged (none). in_transit right after apply: 13 machine-days, 12 of them today's bags already picked up,
+plus AMZ-1029 16 Oct 18 lines / 41 units and VML-1004 14 Oct 1 line / 4 units (older bags, shown in red). FE: Home
+"In the van" card for all three role homes (own useEffect + createClient, .limit(10000)); Dispatching list red
+"+N bags from <date>" badge for machines with older in-transit bags; pack screen amber "Deliver with the bags of <date>"
+banner when any line comment carries the tag. tsc and build clean; lint only pre-existing set-state-in-effect errors.
