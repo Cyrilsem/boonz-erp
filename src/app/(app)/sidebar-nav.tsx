@@ -55,6 +55,8 @@ const sections: NavSection[] = [
   {
     title: "Commercial",
     items: [
+      // PRD-142a: strategic oversight, operator_admin and superadmin only.
+      { label: "Strategy", href: "/app/strategy", icon: "◇" },
       { label: "Performance", href: "/app/performance", icon: "◆" },
       { label: "Financials", href: "/app/financials", icon: "$" },
       { label: "Consumers", href: "/refill/consumers", icon: "⇢" },
@@ -87,6 +89,7 @@ const sections: NavSection[] = [
 // surfaced items (ops-admin tools hidden from finance/warehouse).
 const hiddenByRole: Record<string, string[]> = {
   finance: [
+    "Strategy",
     "Pods",
     "Refill & Dispatch",
     "Driver Requests",
@@ -99,10 +102,11 @@ const hiddenByRole: Record<string, string[]> = {
     "Drift Monitor",
     "Price Review",
   ],
-  manager: ["Settings", "Lifecycle"],
+  manager: ["Settings", "Lifecycle", "Strategy"],
   // Warehouse: inventory, products, procurement, machines, refill/dispatch,
   // suppliers. Hide financial, commercial, and admin-only sections.
   warehouse: [
+    "Strategy",
     "Financials",
     "Consumers",
     "Performance",

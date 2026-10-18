@@ -161,13 +161,13 @@ Defaults chosen and logged: products in scope have >= 30 units over the 60-week 
 
 Regression vs the handover (2026-10-10 snapshot), Boonz, as_of 2026-10-18: PASS.
 
-| Product | Handover | Now | Numbers now |
-| --- | --- | --- | --- |
-| Activia Mix & Go | Missed the wave (4.5 @32% to 2.7 @11%, WH 2) | MISSED_THE_WAVE | prime 4.50 @32.3%, now 2.50 @9.5%, retention 0.56, WH none, prime 11 weeks ago |
-| YoPRO | Missed the wave (3.2 @15% to 2.1 @6%) | MISSED_THE_WAVE | prime 3.15 @15.1%, now 2.13 @4.2%, WH none |
-| Coca Cola Mix | Double down (15.6 @22%) | DOUBLE_DOWN | 16.95 @21.9%, WH stocked |
-| Nutella Biscuits T3 | Incubate (23/wk on 3 machines) | INCUBATE | 18.6/wk, 0.9 months live |
-| Zigi | Cooled off (7.7 to 3.8) | COOLED_OFF | prime 7.70, now 3.79, retention 0.49, stocked |
+| Product             | Handover                                     | Now             | Numbers now                                                                    |
+| ------------------- | -------------------------------------------- | --------------- | ------------------------------------------------------------------------------ |
+| Activia Mix & Go    | Missed the wave (4.5 @32% to 2.7 @11%, WH 2) | MISSED_THE_WAVE | prime 4.50 @32.3%, now 2.50 @9.5%, retention 0.56, WH none, prime 11 weeks ago |
+| YoPRO               | Missed the wave (3.2 @15% to 2.1 @6%)        | MISSED_THE_WAVE | prime 3.15 @15.1%, now 2.13 @4.2%, WH none                                     |
+| Coca Cola Mix       | Double down (15.6 @22%)                      | DOUBLE_DOWN     | 16.95 @21.9%, WH stocked                                                       |
+| Nutella Biscuits T3 | Incubate (23/wk on 3 machines)               | INCUBATE        | 18.6/wk, 0.9 months live                                                       |
+| Zigi                | Cooled off (7.7 to 3.8)                      | COOLED_OFF      | prime 7.70, now 3.79, retention 0.49, stocked                                  |
 
 Moved since the snapshot (explained by the data): Hunter Protect to MISSED_THE_WAVE (WH_CENTRAL now 0 vs 11 in the handover, prime 4.29 @47% to 2.55 @34%). Evian Exit stays EXIT.
 
@@ -176,3 +176,14 @@ Boonz counts: DOUBLE_DOWN 10, PROTECT 8, MISSED_THE_WAVE 21, COOLED_OFF 3, REDUC
 PO hygiene list: Smart Gourmet Hummus (COOLED_OFF) 108 open, 15.4 weeks of cover from the PO; Keen Health Dipped Crackers (REDUCE_REPLACE) 108 open, 4.9 weeks. (The handover's Zigi 546 and Evian 120 POs are no longer open.) Uncategorised pods: Eviron Health Drink, Pocari Sweat, Tannourine Water.
 
 Nightly: `run_strategy_nightly()` now runs eras, facts, features, supply, archetypes, machine proposals, product playbook and proposals; run by hand 13.5 s. Access: `access_areas` key `app.strategy` (route /app/strategy, sidebar "Strategy") granted to operator_admin and superadmin through role_area_defaults.
+
+### Phase 5 UI /app/strategy: BUILT (12:40 Dubai), verification below
+
+Files: `src/app/(app)/app/strategy/page.tsx` (tabs, `useRequireArea("app.strategy")`), `MachinesTab.tsx`, `MachineDrawer.tsx`, `ProductsTab.tsx`, `ProductDrawer.tsx`, `shared.tsx`; sidebar entry "Strategy" under Commercial in `src/app/(app)/sidebar-nav.tsx`, hidden for finance, manager and warehouse (middleware already blocks warehouse and field_staff from /app). recharts only (no new dependency); ERP palette variables. Supabase client created inside useEffect (kept in a ref for handlers).
+
+- Machines tab: population toggle, window 30d/90d/12m/era, all-eras toggle; KPI strip (machines, net rev per day, GP per day, COGS coverage, machines by posture); posture 2x2 (performance index on y, mix gap on x, points sized by rev per day, coloured by archetype, reference lines at 85% and 25%, click opens the drawer); archetype legend with counts and the 14-day archetype-change notice; review-proposals panel (Accept, Accept with edits via the drawer, Reject with a required reason, plus machines past review_by); sortable table with archetype and posture filters and a dashed "proposed" badge.
+- Machine drawer: diagnosis, KPI cards (daily, full-month average, lifetime era), T+ adoption chart with fleet median and a revenue/units toggle, hour and weekday profiles, shelf grid by cabinet coloured by quadrant, product table here vs fleet vs siblings, category balance bars, posture editor (posture, params from strategy_posture_defaults, shelf overrides lock/reset/swap now, notes) calling set_machine_strategy, history and eras.
+- Products tab: scope Boonz/Partner/All, position Current/At prime/Trails, X axis coverage or AED per facing, playbook chips with counts, cluster filter, min units slider, label all, tooltip with the 60-week sparkline; velocity (log) x coverage map with median lines, maturity single-hue ramp fill and playbook outline, prime-to-now trails; KPI strip incl. "proven demand not served"; cluster table; sortable full table with posture badge; product x archetype heatmap (top 25 by revenue); PO hygiene, quarantined and uncategorised lists.
+- Product drawer: now vs prime KPI cards, the numbers that fired the label, weekly series with the prime window shaded, best and worst machines, archetype bars, supply block, posture editor calling set_product_strategy, history.
+
+Gates so far: `npx tsc --noEmit` clean; eslint on the new files clean (fixed three react-hooks/set-state-in-effect errors by deriving loading and drawer state from a load key); `npm run build` passes, `/app/strategy` listed as a dynamic route. `npm ci` was run in this worktree (it had no node_modules); lockfile unchanged, no package added.
