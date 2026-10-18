@@ -281,6 +281,8 @@ export default function PackingDetailPage() {
     return !expirySavedFor.has(whInventoryId);
   }
   const [saving, setSaving] = useState(false);
+  // PRD-141 item 8: lines whose Packed tap already wrote pack_dispatch_line.
+  const [packedOnTap, setPackedOnTap] = useState<Set<string>>(new Set());
   const [saved, setSaved] = useState(false);
   const [editingAfterSave, setEditingAfterSave] = useState(false);
   const [whWarnMsg, setWhWarnMsg] = useState<string>("");
@@ -1588,7 +1590,9 @@ export default function PackingDetailPage() {
   // documented fallback: warn before an unsaved pack is lost to a reload or
   // closed tab.
   useEffect(() => {
-    const unsavedCount = lines.filter((l) => l.action !== null).length;
+    const unsavedCount = lines.filter(
+      (l) => l.action !== null && !packedOnTap.has(l.dispatch_id),
+    ).length;
     if (saved || unsavedCount === 0) return;
     const handler = (e: BeforeUnloadEvent) => {
       e.preventDefault();
@@ -1596,13 +1600,15 @@ export default function PackingDetailPage() {
     };
     window.addEventListener("beforeunload", handler);
     return () => window.removeEventListener("beforeunload", handler);
-  }, [lines, saved]);
+  }, [lines, saved, packedOnTap]);
 
   // PRD-139c Item 4: the beforeunload warning above only catches a reload or
   // closed tab, not the in-app Back link (a Next.js client-side navigation
   // never fires beforeunload). Guard that path the same way.
   function handleBackAttempt(): boolean {
-    const unsavedCount = lines.filter((l) => l.action !== null).length;
+    const unsavedCount = lines.filter(
+      (l) => l.action !== null && !packedOnTap.has(l.dispatch_id),
+    ).length;
     if (saved || unsavedCount === 0) return true;
     return window.confirm(
       `You have ${unsavedCount} unsaved packs. Leave anyway?`,
@@ -1743,6 +1749,206 @@ export default function PackingDetailPage() {
 
   // ── Save ────────────────────────────────────────────────────────────────────
 
+  // PRD-141 item 8: one line's pack write, shared by the Save loop and the
+  // write-on-tap path. Returns true when pack_dispatch_line accepted the line.
+  async function packOneLine(
+    line: PackLine,
+    supabase: ReturnType<typeof createClient>,
+    ctx: {
+      warnings: string[];
+      newLineErrors: Record<string, string>;
+      overPicks: string[];
+      driftLines: number;
+    },
+  ): Promise<boolean> {
+    // ── B3.1 RPC-only path ───────────────────────────────────────────
+    // pack_dispatch_line does: WH→consumer reservation, parent qty
+    // reconciliation (via OB-2 trigger on child INSERT), atomic audit.
+    // NO legacy inline WH UPDATE or child INSERT exists below.
+    const batchQtys = batchPickQtys[line.dispatch_id];
+    const isMixLine = line.variantStocks !== null;
+
+    // Fetch existing extra-slice state; preserve frozen (picked_up /
+    // dispatched) rows — these must not be touched. Clear only rows
+    // still in the packed-not-yet-picked-up phase so the RPC can
+    // spawn fresh children via the OB-2 trigger.
+    const frozenKeys = new Set<string>();
+    const keyOf = (bpId: string | null, exp: string | null) =>
+      `${bpId ?? ""}__${exp ?? ""}`;
+
+    if (line.extraSliceIds.length > 0) {
+      const { data: existingSlices, error: fetchErr } = await supabase
+        .from("refill_dispatching")
+        .select(
+          "dispatch_id, boonz_product_id, expiry_date, picked_up, dispatched",
+        )
+        .in("dispatch_id", line.extraSliceIds);
+      if (fetchErr) {
+        console.error("[B3.1] fetch extra slices failed", fetchErr);
+        ctx.warnings.push(
+          `${line.pod_product_name}: failed to read existing slices — skipped`,
+        );
+        return false;
+      }
+      const deletableIds: string[] = [];
+      for (const row of existingSlices ?? []) {
+        if (row.picked_up === true || row.dispatched === true) {
+          frozenKeys.add(keyOf(row.boonz_product_id, row.expiry_date));
+        } else {
+          deletableIds.push(row.dispatch_id);
+        }
+      }
+      if (deletableIds.length > 0) {
+        const { error: delErr } = await supabase
+          .from("refill_dispatching")
+          .delete()
+          .in("dispatch_id", deletableIds);
+        if (delErr) {
+          console.error("[B3.1] delete stale slices failed", delErr);
+          ctx.warnings.push(
+            `${line.pod_product_name}: could not clear stale slices — skipped`,
+          );
+          return false;
+        }
+      }
+    }
+
+    // Re-pack of an already-packed parent is not supported by the RPC
+    // (protect_packed_dispatch_row trigger blocks identity changes).
+    //
+    // PRD-115 §2.3: this used to push a per-line warning. On the incident
+    // screen that produced NINETEEN of them, which reads as nineteen faults
+    // and is one: the plan moved while the packer was packing. Count it and
+    // let the single refresh banner say so once.
+    if (line.packed) {
+      ctx.driftLines += 1;
+      return false;
+    }
+
+    // Build per-batch pick list. Every pick carries its own
+    // boonz_product_id so mix lines (one parent → multiple variants)
+    // pack atomically in one RPC call.
+    interface Pick {
+      wh_inventory_id: string;
+      qty: number;
+      boonz_product_id: string;
+    }
+    const picks: Pick[] = [];
+
+    if (isMixLine && line.variantStocks) {
+      for (const v of line.variantStocks) {
+        for (const b of v.batches) {
+          const qty = batchQtys?.[b.wh_inventory_id] ?? 0;
+          if (qty <= 0) return false;
+          if (frozenKeys.has(keyOf(v.boonzProductId, b.expiry))) return false;
+          picks.push({
+            wh_inventory_id: b.wh_inventory_id,
+            qty,
+            boonz_product_id: v.boonzProductId,
+          });
+        }
+      }
+    } else {
+      for (const b of line.singleBatches ?? []) {
+        const qty = batchQtys?.[b.wh_inventory_id] ?? 0;
+        if (qty <= 0) return false;
+        if (frozenKeys.has(keyOf(line.boonz_product_id, b.expiry)))
+          return false;
+        picks.push({
+          wh_inventory_id: b.wh_inventory_id,
+          qty,
+          boonz_product_id: line.boonz_product_id,
+        });
+      }
+    }
+
+    // Zero picks: user intentionally packed 0 qty (e.g. shelf cleared,
+    // product swapped out). Route through the canonical writer: picks
+    // summing to 0 stamp pack_outcome='not_filled' with the reason, so
+    // the line is resolved (non-physical) and no WH stock is deducted.
+    if (picks.length === 0) {
+      console.log(
+        `[B3.1] ${line.pod_product_name}: packed with qty=0 — marking not_filled`,
+      );
+      const { error: zeroErr } = await supabase.rpc("pack_dispatch_line", {
+        p_dispatch_id: line.dispatch_id,
+        p_picks: [
+          {
+            qty: 0,
+            reason: "packed zero qty (shelf cleared or swapped out)",
+          },
+        ],
+      });
+      if (zeroErr) {
+        console.error(
+          `[B3.1] Zero-pack update failed for ${line.pod_product_name}:`,
+          zeroErr.message,
+        );
+        ctx.warnings.push(`${line.pod_product_name}: ${zeroErr.message}`);
+      }
+      return false;
+    }
+
+    // PRD-115 §2.3 (acceptance 4): catch the over-pick HERE, where the line
+    // name and the plan are both in hand, instead of letting
+    // pack_dispatch_line raise "Pick total (6) exceeds planned quantity (3)".
+    // That message is true and useless: it does not say which line, and it
+    // does not say why 6 is wrong when the packer physically counted 6 units.
+    // She had added the same-pod Remove leg's 3 into her pick. Remove legs
+    // come OUT of the machine and draw nothing from the warehouse.
+    // The backend guard is untouched and still the authority - this is a
+    // pre-flight that makes the refusal legible.
+    const pickTotal = picks.reduce((s, p) => s + p.qty, 0);
+    if (pickTotal > line.recommended_qty) {
+      ctx.overPicks.push(
+        pickExceedsPlanMessage(line.display_name, line.recommended_qty),
+      );
+      return false;
+    }
+
+    // Diagnostic telemetry — used to verify mix lines are taking the
+    // RPC path (zero legacy fallback expected).
+    const distinctBpids = new Set(picks.map((p) => p.boonz_product_id));
+    console.log(
+      `[B3.1] Packing ${line.pod_product_name} (dispatch ${line.dispatch_id}):`,
+      {
+        isMixLine,
+        variantCount: distinctBpids.size,
+        totalPickQty: picks.reduce((s, p) => s + p.qty, 0),
+        plannedQty: line.recommended_qty,
+        picksCount: picks.length,
+      },
+    );
+
+    const { data: rpcData, error: rpcErr } = await supabase.rpc(
+      "pack_dispatch_line",
+      { p_dispatch_id: line.dispatch_id, p_picks: picks },
+    );
+    if (rpcErr) {
+      console.error(
+        `[B3.1] Pack RPC failed for ${line.pod_product_name}:`,
+        rpcErr.message,
+      );
+      ctx.warnings.push(`${line.pod_product_name}: ${rpcErr.message}`);
+      ctx.newLineErrors[line.dispatch_id] = rpcErr.message;
+      return false;
+    }
+    // W5: pack_dispatch_line's vox guard returns a normal (non-error) jsonb
+    // result with status='bind_failed' when a venue line has no matching
+    // 2099 placeholder warehouse_inventory row for its product — this must
+    // surface to the packer, not disappear (the whole point of this fix is
+    // that a venue line never silently resolves to 0/not_filled).
+    if ((rpcData as { status?: string } | null)?.status === "bind_failed") {
+      const msg =
+        "no venue placeholder stock row set up for this product yet — ask WH to create it, then re-pack";
+      ctx.warnings.push(`${line.pod_product_name}: ${msg}`);
+      ctx.newLineErrors[line.dispatch_id] = msg;
+      return false;
+    }
+    console.log(`[B3.1] Packed via RPC: ${line.pod_product_name}`, rpcData);
+    return true;
+  }
+
   // PRD-044: two-mode confirm. p_final=true = Finish (requires every line resolved,
   // marks completed); p_final=false = Save & come back (commits resolved-so-far, leaves
   // the machine in_progress, no all-resolved requirement). Lossless resume.
@@ -1776,199 +1982,17 @@ export default function PackingDetailPage() {
     // also render on its own card instead of only the page-top banner.
     const newLineErrors: Record<string, string> = {};
     // PRD-115 §2.3: counted, not narrated. See the planDrift state comment.
-    let driftLines = 0;
     const overPicks: string[] = [];
 
+    const ctx = { warnings, newLineErrors, overPicks, driftLines: 0 };
     for (const line of lines) {
       // Skip M2M lines — they are born packed=true and need no WH action
       if (line.is_m2m) continue;
 
       if (line.action === "packed") {
-        // ── B3.1 RPC-only path ───────────────────────────────────────────
-        // pack_dispatch_line does: WH→consumer reservation, parent qty
-        // reconciliation (via OB-2 trigger on child INSERT), atomic audit.
-        // NO legacy inline WH UPDATE or child INSERT exists below.
-        const batchQtys = batchPickQtys[line.dispatch_id];
-        const isMixLine = line.variantStocks !== null;
-
-        // Fetch existing extra-slice state; preserve frozen (picked_up /
-        // dispatched) rows — these must not be touched. Clear only rows
-        // still in the packed-not-yet-picked-up phase so the RPC can
-        // spawn fresh children via the OB-2 trigger.
-        const frozenKeys = new Set<string>();
-        const keyOf = (bpId: string | null, exp: string | null) =>
-          `${bpId ?? ""}__${exp ?? ""}`;
-
-        if (line.extraSliceIds.length > 0) {
-          const { data: existingSlices, error: fetchErr } = await supabase
-            .from("refill_dispatching")
-            .select(
-              "dispatch_id, boonz_product_id, expiry_date, picked_up, dispatched",
-            )
-            .in("dispatch_id", line.extraSliceIds);
-          if (fetchErr) {
-            console.error("[B3.1] fetch extra slices failed", fetchErr);
-            warnings.push(
-              `${line.pod_product_name}: failed to read existing slices — skipped`,
-            );
-            continue;
-          }
-          const deletableIds: string[] = [];
-          for (const row of existingSlices ?? []) {
-            if (row.picked_up === true || row.dispatched === true) {
-              frozenKeys.add(keyOf(row.boonz_product_id, row.expiry_date));
-            } else {
-              deletableIds.push(row.dispatch_id);
-            }
-          }
-          if (deletableIds.length > 0) {
-            const { error: delErr } = await supabase
-              .from("refill_dispatching")
-              .delete()
-              .in("dispatch_id", deletableIds);
-            if (delErr) {
-              console.error("[B3.1] delete stale slices failed", delErr);
-              warnings.push(
-                `${line.pod_product_name}: could not clear stale slices — skipped`,
-              );
-              continue;
-            }
-          }
-        }
-
-        // Re-pack of an already-packed parent is not supported by the RPC
-        // (protect_packed_dispatch_row trigger blocks identity changes).
-        //
-        // PRD-115 §2.3: this used to push a per-line warning. On the incident
-        // screen that produced NINETEEN of them, which reads as nineteen faults
-        // and is one: the plan moved while the packer was packing. Count it and
-        // let the single refresh banner say so once.
-        if (line.packed) {
-          driftLines += 1;
-          continue;
-        }
-
-        // Build per-batch pick list. Every pick carries its own
-        // boonz_product_id so mix lines (one parent → multiple variants)
-        // pack atomically in one RPC call.
-        interface Pick {
-          wh_inventory_id: string;
-          qty: number;
-          boonz_product_id: string;
-        }
-        const picks: Pick[] = [];
-
-        if (isMixLine && line.variantStocks) {
-          for (const v of line.variantStocks) {
-            for (const b of v.batches) {
-              const qty = batchQtys?.[b.wh_inventory_id] ?? 0;
-              if (qty <= 0) continue;
-              if (frozenKeys.has(keyOf(v.boonzProductId, b.expiry))) continue;
-              picks.push({
-                wh_inventory_id: b.wh_inventory_id,
-                qty,
-                boonz_product_id: v.boonzProductId,
-              });
-            }
-          }
-        } else {
-          for (const b of line.singleBatches ?? []) {
-            const qty = batchQtys?.[b.wh_inventory_id] ?? 0;
-            if (qty <= 0) continue;
-            if (frozenKeys.has(keyOf(line.boonz_product_id, b.expiry)))
-              continue;
-            picks.push({
-              wh_inventory_id: b.wh_inventory_id,
-              qty,
-              boonz_product_id: line.boonz_product_id,
-            });
-          }
-        }
-
-        // Zero picks: user intentionally packed 0 qty (e.g. shelf cleared,
-        // product swapped out). Route through the canonical writer: picks
-        // summing to 0 stamp pack_outcome='not_filled' with the reason, so
-        // the line is resolved (non-physical) and no WH stock is deducted.
-        if (picks.length === 0) {
-          console.log(
-            `[B3.1] ${line.pod_product_name}: packed with qty=0 — marking not_filled`,
-          );
-          const { error: zeroErr } = await supabase.rpc("pack_dispatch_line", {
-            p_dispatch_id: line.dispatch_id,
-            p_picks: [
-              {
-                qty: 0,
-                reason: "packed zero qty (shelf cleared or swapped out)",
-              },
-            ],
-          });
-          if (zeroErr) {
-            console.error(
-              `[B3.1] Zero-pack update failed for ${line.pod_product_name}:`,
-              zeroErr.message,
-            );
-            warnings.push(`${line.pod_product_name}: ${zeroErr.message}`);
-          }
-          continue;
-        }
-
-        // PRD-115 §2.3 (acceptance 4): catch the over-pick HERE, where the line
-        // name and the plan are both in hand, instead of letting
-        // pack_dispatch_line raise "Pick total (6) exceeds planned quantity (3)".
-        // That message is true and useless: it does not say which line, and it
-        // does not say why 6 is wrong when the packer physically counted 6 units.
-        // She had added the same-pod Remove leg's 3 into her pick. Remove legs
-        // come OUT of the machine and draw nothing from the warehouse.
-        // The backend guard is untouched and still the authority - this is a
-        // pre-flight that makes the refusal legible.
-        const pickTotal = picks.reduce((s, p) => s + p.qty, 0);
-        if (pickTotal > line.recommended_qty) {
-          overPicks.push(
-            pickExceedsPlanMessage(line.display_name, line.recommended_qty),
-          );
-          continue;
-        }
-
-        // Diagnostic telemetry — used to verify mix lines are taking the
-        // RPC path (zero legacy fallback expected).
-        const distinctBpids = new Set(picks.map((p) => p.boonz_product_id));
-        console.log(
-          `[B3.1] Packing ${line.pod_product_name} (dispatch ${line.dispatch_id}):`,
-          {
-            isMixLine,
-            variantCount: distinctBpids.size,
-            totalPickQty: picks.reduce((s, p) => s + p.qty, 0),
-            plannedQty: line.recommended_qty,
-            picksCount: picks.length,
-          },
-        );
-
-        const { data: rpcData, error: rpcErr } = await supabase.rpc(
-          "pack_dispatch_line",
-          { p_dispatch_id: line.dispatch_id, p_picks: picks },
-        );
-        if (rpcErr) {
-          console.error(
-            `[B3.1] Pack RPC failed for ${line.pod_product_name}:`,
-            rpcErr.message,
-          );
-          warnings.push(`${line.pod_product_name}: ${rpcErr.message}`);
-          newLineErrors[line.dispatch_id] = rpcErr.message;
-          continue;
-        }
-        // W5: pack_dispatch_line's vox guard returns a normal (non-error) jsonb
-        // result with status='bind_failed' when a venue line has no matching
-        // 2099 placeholder warehouse_inventory row for its product — this must
-        // surface to the packer, not disappear (the whole point of this fix is
-        // that a venue line never silently resolves to 0/not_filled).
-        if ((rpcData as { status?: string } | null)?.status === "bind_failed") {
-          const msg =
-            "no venue placeholder stock row set up for this product yet — ask WH to create it, then re-pack";
-          warnings.push(`${line.pod_product_name}: ${msg}`);
-          newLineErrors[line.dispatch_id] = msg;
-          continue;
-        }
-        console.log(`[B3.1] Packed via RPC: ${line.pod_product_name}`, rpcData);
+        // PRD-141 item 8: already written when the packer tapped Packed.
+        if (packedOnTap.has(line.dispatch_id)) continue;
+        await packOneLine(line, supabase, ctx);
       }
       // PRD-020: skipping is now an immediate skip_dispatch_line RPC (submitSkip),
       // not a deferred direct write here. By confirm time a skipped line has
@@ -1987,7 +2011,7 @@ export default function PackingDetailPage() {
       return { ...merged, ...newLineErrors };
     });
     // PRD-115 §2.3: one banner for the drift, a named list for the over-picks.
-    setPlanDrift(driftLines);
+    setPlanDrift(ctx.driftLines);
     setPickErrors(overPicks);
 
     // B3.1 Issue 8: re-fetch authoritative state after the save loop so
@@ -2333,6 +2357,49 @@ export default function PackingDetailPage() {
       setZeroQtyWarnings((prev) => new Set([...prev, line.dispatch_id]));
     }
     updateAction(line.dispatch_id, "packed");
+    // PRD-141 item 8: write the pack now instead of waiting for Save, so a
+    // closed tab or dead phone cannot lose it. A zero-qty table or a pinned
+    // batch still missing its expiry stays staged for Save, which guards both.
+    if (hasTable && variantTotal(line.dispatch_id) === 0) return;
+    if (line.is_m2m || line.packed || packedOnTap.has(line.dispatch_id)) return;
+    const pinnedWhId = line.allocations[0]?.wh_inventory_id ?? null;
+    if (
+      line.variantStocks === null &&
+      line.fifo_expiry === null &&
+      pinnedWhId &&
+      needsExpiryCapture(pinnedWhId)
+    )
+      return;
+    void packOnTap(line);
+  }
+
+  async function packOnTap(line: PackLine) {
+    setSaving(true);
+    const ctx = {
+      warnings: [] as string[],
+      newLineErrors: {} as Record<string, string>,
+      overPicks: [] as string[],
+      driftLines: 0,
+    };
+    const ok = await packOneLine(
+      { ...line, action: "packed" },
+      createClient(),
+      ctx,
+    );
+    setLineErrors((prev) => {
+      const merged = { ...prev };
+      delete merged[line.dispatch_id];
+      return { ...merged, ...ctx.newLineErrors };
+    });
+    if (ctx.warnings.length > 0) setWhWarnMsg(ctx.warnings.join(" · "));
+    if (ctx.overPicks.length > 0)
+      setPickErrors((prev) => [...prev, ...ctx.overPicks]);
+    if (ok) {
+      // PRD-049 issue 3: no fetchData() here, it would wipe staged picks on
+      // other lines. Save skips this line; Finish still runs confirm_machine_packed.
+      setPackedOnTap((prev) => new Set([...prev, line.dispatch_id]));
+    }
+    setSaving(false);
   }
 
   // PRD-030: mark a zero-stock line "not filled" via the canonical RPC.
