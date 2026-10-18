@@ -150,3 +150,29 @@ Migrations `20261018060312_prd142a_9_get_strategy_machines.sql` and `20261018060
 - `get_strategy_machine_detail(machine)`: daily era series, T+ adoption (rolling 7-day rev and units, cumulative, fleet median cumulative at the same day index), monthly table with full-month flag, hour and weekday profiles, shelf table (size class, product, units and rev per slot per day, fleet percent ranks, quadrant Prime / Volume-cheap / Premium-slow / Weak / Dead / Too new / Empty, slot age), product table (velocity here vs fleet median vs siblings in the same venue_group or building: Local hero >= 1.25x fleet median, Underperformer <= 0.75x, else On par; "Too few machines" under 3), category balance, eras, strategy history and posture defaults.
 
 Evidence, IRIS-1070 drill-down (reproduces the handover section 6 read): Zigi Local hero 3.50/wk here vs fleet 2.45 (the winner that was swapped out), Perrier Local hero 2.43 vs 1.86, Pepsi Black Underperformer 1.67 vs siblings 8.29, Loacker 1.25 vs siblings 7.31; lanes A03 Red Bull and A15 Al Ain Zero Dead, A01 Keen Health and A08 Plaay Dead, A10 Barebells Dead. Adoption day 41: cumulative AED 793 vs fleet median AED 1,388.
+
+### Phase 4 (6.1 to 6.5) product intelligence: DONE (11:45 Dubai)
+
+Migrations: `20261018063916_prd142a_11_product_playbook.sql` (applied through several execute_sql calls, schema_migrations row inserted by hand, `created_by = 'prd142a-session-manual-insert'`; the build had to be split into small functions `strategy_playbook_prepare`, `strategy_playbook_clear`, `strategy_playbook_insert`, `propose_product_strategy` and the orchestrator `build_product_playbook` because the MCP rejected the larger payloads), `20261018063648_prd142a_12_get_strategy_products.sql`, `20261018063818_prd142a_13_product_matrix_detail_writer.sql`, `20261018063838_prd142a_14_strategy_nightly_full.sql`. The version of _11 sorts after _12 to _14 because its row was registered last; replay order is still safe (plpgsql bodies resolve tables at call time). md5 of all 10 function bodies = prod. One fix while running: `anomaly` evaluated to NULL when no 4-week window had 16 units (COALESCE to false).
+
+Tables: `product_superseded` (seeded with Krambals & Zigi, Pepsi Mix, Healthy Cola - Mix; successors filled where a pod exists, Pepsi Mix successor is a guess for CS), `product_playbook` (per population boonz, partner, all; 60-week series arrays for sparklines; reason jsonb with the numbers that fired the label), `product_strategy` (proposals for the Boonz population). RPCs (is_admin gate, authenticated only): `get_strategy_products(population, position)` (products, KPI strip, medians, cluster summary with a counts read, PO hygiene list, quarantined list, uncategorised list), `get_strategy_product_archetype_matrix(population)`, `get_strategy_product_detail(pod, population)`, writer `set_product_strategy(pod, posture, target_archetypes, notes)` (logs to strategy_change_log).
+
+Defaults chosen and logged: products in scope have >= 30 units over the 60-week series (the handover filter); "now below prime" for MISSED_THE_WAVE = retention < 0.7, coverage < 60% of prime coverage, or current units per week below prime units per week; COOLED_OFF also requires the prime to be >= 4 weeks ago; proposals only for the Boonz population; GROW target archetypes = up to 2 archetypes where the product's velocity ratio >= 1.2, lowest archetype coverage first. Cannibalisation flag (6.3 last bullet, backlog item 7): NOT BUILT in 142a, time-boxed out.
+
+Regression vs the handover (2026-10-10 snapshot), Boonz, as_of 2026-10-18: PASS.
+
+| Product | Handover | Now | Numbers now |
+| --- | --- | --- | --- |
+| Activia Mix & Go | Missed the wave (4.5 @32% to 2.7 @11%, WH 2) | MISSED_THE_WAVE | prime 4.50 @32.3%, now 2.50 @9.5%, retention 0.56, WH none, prime 11 weeks ago |
+| YoPRO | Missed the wave (3.2 @15% to 2.1 @6%) | MISSED_THE_WAVE | prime 3.15 @15.1%, now 2.13 @4.2%, WH none |
+| Coca Cola Mix | Double down (15.6 @22%) | DOUBLE_DOWN | 16.95 @21.9%, WH stocked |
+| Nutella Biscuits T3 | Incubate (23/wk on 3 machines) | INCUBATE | 18.6/wk, 0.9 months live |
+| Zigi | Cooled off (7.7 to 3.8) | COOLED_OFF | prime 7.70, now 3.79, retention 0.49, stocked |
+
+Moved since the snapshot (explained by the data): Hunter Protect to MISSED_THE_WAVE (WH_CENTRAL now 0 vs 11 in the handover, prime 4.29 @47% to 2.55 @34%). Evian Exit stays EXIT.
+
+Boonz counts: DOUBLE_DOWN 10, PROTECT 8, MISSED_THE_WAVE 21, COOLED_OFF 3, REDUCE_REPLACE 3, EXIT 10, INCUBATE 10, SUPERSEDED 3, ANOMALY 1 (Tannourine Water). Medians: velocity 2.55/wk (handover 2.4), coverage 17.6% (handover 19%), top quartile 4.39. KPI: 65 products shown, 10,089 units, AED 69,872 net ex-VAT in 8 weeks; unserved proven demand 164.5 units/week across MISSED_THE_WAVE (handover about 150). Cluster read, Soft and energy drinks: 7 double down, 3 missed the wave, 3 to drain or exit of 13 (handover: 6 of 8 double-downs are drinks).
+
+PO hygiene list: Smart Gourmet Hummus (COOLED_OFF) 108 open, 15.4 weeks of cover from the PO; Keen Health Dipped Crackers (REDUCE_REPLACE) 108 open, 4.9 weeks. (The handover's Zigi 546 and Evian 120 POs are no longer open.) Uncategorised pods: Eviron Health Drink, Pocari Sweat, Tannourine Water.
+
+Nightly: `run_strategy_nightly()` now runs eras, facts, features, supply, archetypes, machine proposals, product playbook and proposals; run by hand 13.5 s. Access: `access_areas` key `app.strategy` (route /app/strategy, sidebar "Strategy") granted to operator_admin and superadmin through role_area_defaults.
