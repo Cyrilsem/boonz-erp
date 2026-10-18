@@ -8,6 +8,7 @@ import { createClient } from "@/lib/supabase/client";
 import { FieldHeader } from "../../../components/field-header";
 import { ShelfGrid, type ShelfSlot } from "@/components/field/ShelfGrid";
 import { MachineSetupConfigTab } from "@/components/config/MachineSetupConfigTab";
+import { RelabelsTab } from "@/components/config/RelabelsTab";
 import PromptModal from "@/components/PromptModal";
 
 const ADMIN_ROLES = ["operator_admin", "superadmin", "manager", "warehouse"];
@@ -391,13 +392,14 @@ function parseCsv(text: string): Record<string, string>[] {
 
 // ─── Page ─────────────────────────────────────────────────────────────────────
 
-type TabId = "machines" | "aliases" | "layout" | "setup";
+type TabId = "machines" | "aliases" | "layout" | "setup" | "relabels";
 
 const TAB_LABELS: Record<TabId, string> = {
   machines: "Machines",
   aliases: "Aliases",
   layout: "Layout",
   setup: "Setup Config",
+  relabels: "Relabels",
 };
 
 export default function MachinesPage() {
@@ -409,7 +411,12 @@ export default function MachinesPage() {
     const tab = new URLSearchParams(window.location.search).get(
       "tab",
     ) as TabId | null;
-    if (tab === "aliases" || tab === "layout" || tab === "setup")
+    if (
+      tab === "aliases" ||
+      tab === "layout" ||
+      tab === "setup" ||
+      tab === "relabels"
+    )
       setActiveTab(tab);
   }, []);
 
@@ -1075,7 +1082,9 @@ export default function MachinesPage() {
 
       {/* Tabs */}
       <div className="flex border-b border-neutral-200 dark:border-neutral-800">
-        {(["machines", "aliases", "layout", "setup"] as TabId[]).map((tab) => (
+        {(
+          ["machines", "aliases", "layout", "setup", "relabels"] as TabId[]
+        ).map((tab) => (
           <button
             key={tab}
             onClick={() => {
@@ -1484,6 +1493,15 @@ export default function MachinesPage() {
 
       {/* ── Setup Config tab ── */}
       {activeTab === "setup" && <MachineSetupConfigTab machines={machines} />}
+
+      {/* ── Relabels tab (PRD-141 item 22) ── */}
+      {activeTab === "relabels" && (
+        <RelabelsTab
+          canMarkDone={
+            userRole === "operator_admin" || userRole === "superadmin"
+          }
+        />
+      )}
 
       {/* ── Add machine bottom sheet ── */}
       {showAddMachine && (

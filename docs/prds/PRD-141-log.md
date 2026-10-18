@@ -1014,3 +1014,10 @@ Prepared file applied unchanged; all anchors held (receive_dispatch_line after t
 protect_packed_dispatch_row guards product/machine/shelf/date only, so the delivered_at backfill does not touch it.
 Read-back: 7,712 lines with delivered_at; receive_dispatch_line carries the stamp; v_machine_health_signals 35 rows and
 reads delivered_at; AMZ-1029 days_since_visit 4 (its 16 Oct bags are still in the van, item 17).
+
+### Items 21 and 22 (slot guard aliases, relabels), applied 2026-10-18 10:41 Dubai as 20261018064046
+Prepared file applied unchanged; all four anchors held. Read-back: ensure_swap_remove_leg inserts into
+weimi_relabel_requests; assert_weimi_slot_match has relabel_pending_exempt; open_relabel_request and mark_relabel_done
+exist once each, not anon-executable. Rolled-back run on the 16 Oct plan: 15 checked, 0 blocked, 1 warned (18 Oct and 19
+Oct return 0 checked, no pending lines). FE: Config > Machines "Relabels" tab lists open requests (machine, lane, from
+and to pod, source); Mark done calls mark_relabel_done and shows only for operator_admin and superadmin.

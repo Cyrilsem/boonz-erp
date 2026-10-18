@@ -12,3 +12,5 @@ BEGIN
   v := regexp_replace(v, '  -- PRD-141 item 22: a swap is also a WEIMI relabel to do\..*?DO NOTHING;\n\n', '', 's');
   EXECUTE v;
 END $rb$;
+-- FE part (Config > Machines Relabels tab, src/components/config/RelabelsTab.tsx): git revert the commit
+-- "feat(prd-141): items 21 and 22 slot guard aliases and relabels" before running the SQL above.
