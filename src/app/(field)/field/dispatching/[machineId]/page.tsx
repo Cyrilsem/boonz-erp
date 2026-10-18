@@ -1695,6 +1695,16 @@ export default function DispatchingDetailPage() {
                         </span>
                       )}
                     </div>
+                    {/* PRD-141 item 0: every Remove leg (including the one a swap now writes)
+                        comes back to the warehouse and is confirmed there. */}
+                    {line.dispatch_action === "Remove" &&
+                      !line.is_internal_move && (
+                        <p className="mb-2 text-xs font-medium text-rose-700 dark:text-rose-400">
+                          Return of {line.quantity} x{" "}
+                          {line.boonz_product_name ?? "product"} to confirm at
+                          warehouse
+                        </p>
+                      )}
 
                     {/* Action toggle — labels depend on the planned action */}
                     {!isReadOnly && (

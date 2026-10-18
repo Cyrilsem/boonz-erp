@@ -925,3 +925,43 @@ reject_plan_lines on a 40-row SAP-2002 clone: rejected 40 in 81 ms as operator_a
 Note: the first two combined dry runs failed with the connector's "Invalid or expired requestState"
 (long requests); split runs with statement_timeout passed.
 FE (day): RefillPlanReview reject buttons call reject_plan_lines.
+
+## Day block (from 09:56 Dubai; gap 02:22 to 09:56 = idle, pulled main, migration head matched the log)
+
+06:00 pick_machines ran on the night changes: 13 machines picked for 19 Oct, no alerts from any new
+function, v_machine_eligibility_drift 0 rows.
+
+### PRD-141 items 0 and 1 (swap integrity) - DONE (migrations 20261018055751, 20261018060733; FE)
+
+Applied 09:57 Dubai (prepared file, unchanged). FE reproduction, production
+boonz-erp.vercel.app, warehouse@boonz.test in a headless browser, test machine WH2-2001-3000-O1, date
+19 Oct (Packing "tomorrow"):
+1. Packing > "+ Add product" > Add New, shelf A09, Vitamin Well - Antioxidant x2: the Add New was
+   REFUSED with "no Active product_mapping for boonz_product d19fbbbd (M&M Bag - Brown Bag)". Cause:
+   the new hook tried to write the Remove leg for the product physically on A09, which has no
+   mapping on that machine, and its exception rolled back the Add New. A regression introduced by the
+   apply; hotfix 20261018060733 applied 8 minutes later (each Remove leg in its own exception block,
+   retry with the lane pod's mapped variant, else alert "add it by hand"; the Add New always goes
+   through). Re-run: Add New saved, alert "Swap on A09: Remove leg for M&M Bags x4 could not be
+   written ...; add it by hand" raised. No real lane was affected in the window (the only Add News
+   in those 8 minutes were these test rows).
+2. Same flow on A01 (WEIMI: Tamreem, 6 on shelf): rows written in one request = Add New Vitamin Well -
+   Antioxidant x2 (driver_addition flag) AND Remove Tamreem Dried Freeze Fruits - Mango x6, pod lot
+   bound, comment "[auto-remove: swap to Vitamin Well]".
+3. Warehouse Confirmations: driver confirm of that Remove (rolled back, breakdown 6 x 2027-01-15)
+   -> v_wm_confirmations line source dispatch_return, WH2-2001 A01, Tamreem Dried Freeze Fruits -
+   Mango, qty 6, driver breakdown attached; status driver_confirmed_pending_wh_approval.
+4. The Swap control: Packing "Swap pod" only lists shelves that already have lines on the date (the
+   sheet says "Clears this shelf and fills it with the chosen pod"). Set up as in real use (planned
+   Refill Santiveri x2 on A03, WEIMI 3 on shelf), then Swap pod A03 -> Vitamin Well x4: rows =
+   swap_shelf_pod's own Remove Santiveri x2 (it only nets the planned delivery) + Add New Vitamin Well
+   Care 1 / Reload 1 / Hydrate 2, AND the new auto Remove Santiveri - Coco Quinoa x3
+   "[auto-remove: swap to Vitamin Well]", the physical outgoing stock the old code never logged.
+   UI path that produced no Remove before: both "+ Add product > Add New" and "Swap pod" on a lane
+   without a planned line of the old product (Swap: the physical stock was never removed even with one).
+5. Cleanup: all 9 test rows soft-removed with remove_dispatch_row (include = false), reason logged.
+FE: Dispatch Detail shows "Return of N x <product> to confirm at warehouse" under every Remove that is
+not an in-machine move. The spec's swap_dispatch_lane RPC and feature flag were not needed: the
+existing Swap RPC now writes both legs.
+Observation for PRD-142: swap_shelf_pod still nets a planned Refill of the old product with a Remove of
+the same quantity instead of cancelling the Refill, so the old product is still packed and comes back.
