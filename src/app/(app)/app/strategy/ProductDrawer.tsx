@@ -53,13 +53,18 @@ export default function ProductDrawer({
   onSaved: () => void;
 }) {
   const sb = useRef<SupabaseClient | null>(null);
-  const [loaded, setLoaded] = useState<{ key: string; data: any }>({ key: "", data: null });
+  const [loaded, setLoaded] = useState<{ key: string; data: any }>({
+    key: "",
+    data: null,
+  });
   const [error, setError] = useState<string | null>(null);
   const [posture, setPosture] = useState("");
   const [targets, setTargets] = useState("");
   const [notes, setNotes] = useState("");
   const [saving, setSaving] = useState(false);
-  const [savedMsg, setSaved] = useState<{ key: string; msg: string } | null>(null);
+  const [savedMsg, setSaved] = useState<{ key: string; msg: string } | null>(
+    null,
+  );
   const [reload, setReload] = useState(0);
   const d = podProductId && loaded.key === podProductId ? loaded.data : null;
   const saved = savedMsg && savedMsg.key === podProductId ? savedMsg.msg : null;

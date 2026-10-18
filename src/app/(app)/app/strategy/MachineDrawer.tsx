@@ -63,7 +63,10 @@ export default function MachineDrawer({
   onSaved: () => void;
 }) {
   const sb = useRef<SupabaseClient | null>(null);
-  const [loaded, setLoaded] = useState<{ key: string; data: Detail | null }>({ key: "", data: null });
+  const [loaded, setLoaded] = useState<{ key: string; data: Detail | null }>({
+    key: "",
+    data: null,
+  });
   const [error, setError] = useState<string | null>(null);
   const [metric, setMetric] = useState<"rev" | "units">("rev");
   const [posture, setPosture] = useState<string>("");
@@ -71,7 +74,9 @@ export default function MachineDrawer({
   const [overrides, setOverrides] = useState<ShelfOverride[]>([]);
   const [notes, setNotes] = useState("");
   const [saving, setSaving] = useState(false);
-  const [savedMsg, setSaved] = useState<{ key: string; msg: string } | null>(null);
+  const [savedMsg, setSaved] = useState<{ key: string; msg: string } | null>(
+    null,
+  );
   const [reload, setReload] = useState(0);
   const d = machineId && loaded.key === machineId ? loaded.data : null;
   const saved = savedMsg && savedMsg.key === machineId ? savedMsg.msg : null;
