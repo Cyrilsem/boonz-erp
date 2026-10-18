@@ -199,6 +199,8 @@ This table is updated after every item.
 | 141 item 5 (M2M visibility) | DONE | 20261018061903; m2m_transfer line in Warehouse Confirmations, destination pod at confirmed qty |
 | 141 item 6 (pickable_stock) | DONE | 20261018062138; one predicate for pack max, G8 and picker; message names quarantined and expiring units |
 | 141 item 7 (receipt expiry moves batch) | DONE | 20261018062325; edit_purchase_order_line moves old-date in-stock batches, audit-logged |
+| 141 item 8 (pack writes on tap) = 139 item 9 | DONE | 7ede99e FE only; Packed tap calls pack_dispatch_line for that line at once (no refetch, no machine confirm); Save skips it; unsaved guard ignores it; zero-qty or missing-expiry lines stay staged for Save |
+| 141 item 9 (No plan lines) | DONE | FE only; Packing list adds a red No plan lines card for machines_to_visit picked/cs_added on the date with 0 dispatch rows (18 Oct: 5 of 8 named machines) |
 | 138 WS-A                           | ALREADY DONE         | bd13e1e, md5 equal for all 7 files                                                                                                                        |
 | 138 WS-B = 141 item 13             | DONE                 | 20261017210334; only VOXDFC-1001/2006 flip; drift 0 rows                                                                                                  |
 | 141 item 14                        | DONE                 | 20261017210904; ACTIVATEMOE stays eligible with flags removed (rolled-back test)                                                                          |

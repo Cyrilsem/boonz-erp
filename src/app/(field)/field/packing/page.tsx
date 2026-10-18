@@ -35,6 +35,8 @@ interface PackingMachine {
    * point is that the chip and the Finish gate read one object.
    */
   needs_reconfirm: boolean;
+  /** PRD-141 item 9: named for the day but with 0 pending dispatch rows. */
+  no_plan_lines?: boolean;
 }
 
 // PRD-111: default export wraps the inner component in <Suspense> — required by
@@ -75,10 +77,41 @@ function PackingPageInner() {
         "dispatch_id, machine_id, packed, dispatched, skipped, cancelled, pack_outcome, not_filled_reason, machines!refill_dispatching_machine_id_fkey!inner(official_name, adyen_store_code)",
       )
       .eq("dispatch_date", selectedDate)
-      .eq("include", true);
+      .eq("include", true)
+      .limit(10000);
+
+    // PRD-141 item 9: the machines named for the day, so a named machine with no
+    // dispatch rows shows up in red instead of being missed.
+    const { data: named } = await supabase
+      .from("machines_to_visit")
+      .select("machine_id, official_name")
+      .eq("plan_date", selectedDate)
+      .in("status", ["picked", "cs_added"])
+      .eq("is_included", true)
+      .limit(10000);
+    const withLines = new Set((lines ?? []).map((l) => l.machine_id as string));
+    const noLineMachines: PackingMachine[] = (named ?? [])
+      .filter((n) => !withLines.has(n.machine_id as string))
+      .map((n) => ({
+        machine_id: n.machine_id as string,
+        official_name: (n.official_name as string) ?? "",
+        adyen_store_code: null,
+        packable_n: 0,
+        resolved_n: 0,
+        driver_action_n: 0,
+        is_pack_complete: false,
+        pack_confirmed: false,
+        is_partial: false,
+        needs_reconfirm: false,
+        no_plan_lines: true,
+      }));
 
     if (!lines || lines.length === 0) {
-      setMachines([]);
+      setMachines(
+        noLineMachines.sort((a, b) =>
+          a.official_name.localeCompare(b.official_name),
+        ),
+      );
       setLoading(false);
       return;
     }
@@ -208,8 +241,8 @@ function PackingPageInner() {
       }
     }
 
-    const sorted = Array.from(grouped.values()).sort((a, b) =>
-      a.official_name.localeCompare(b.official_name),
+    const sorted = [...Array.from(grouped.values()), ...noLineMachines].sort(
+      (a, b) => a.official_name.localeCompare(b.official_name),
     );
     setMachines(sorted);
     setLoading(false);
@@ -296,6 +329,25 @@ function PackingPageInner() {
           // PRD-030 Article 16: readiness is canonical (is_pack_complete), not a
           // client-side packed-count match. pack_confirmed shows the sub-state.
           const ready = machine.is_pack_complete;
+          if (machine.no_plan_lines) {
+            return (
+              <li key={machine.machine_id}>
+                <div className="flex items-center gap-3 rounded-lg border border-red-300 bg-red-50 p-4 dark:border-red-800 dark:bg-red-950">
+                  <div className="flex-1 min-w-0">
+                    <p className="text-base font-semibold truncate">
+                      {machine.official_name}
+                    </p>
+                    <p className="text-sm text-red-700 dark:text-red-300">
+                      Named for {selectedDate}, nothing to pack
+                    </p>
+                  </div>
+                  <span className="shrink-0 rounded-full bg-red-100 px-2.5 py-0.5 text-xs font-medium text-red-800 dark:bg-red-900 dark:text-red-200">
+                    No plan lines
+                  </span>
+                </div>
+              </li>
+            );
+          }
           return (
             <li key={machine.machine_id}>
               <Link

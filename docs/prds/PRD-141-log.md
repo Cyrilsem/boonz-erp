@@ -987,3 +987,16 @@ cause); DispatchEditDialog shows "Max available: N (12 pickable, 30 on hand: 18 
 expiring before 31 Oct)" from pickable_stock via server action getPickableStockMessage. FE item 7: the
 PO line drawer shows "N warehouse batches updated to the new expiry" when a received line's expiry moves
 batches. Evidence of the DB behaviour is in the prepared-item sections above.
+
+### Item 8 (pack writes on tap), 2026-10-18 10:30 Dubai
+packOneLine() extracted from the handleConfirmPacking loop unchanged; handlePackedClick now calls it for the tapped line
+(packOnTap). No fetchData on tap (PRD-049 issue 3), no confirm_machine_packed (Finish still runs it). Lines written on tap
+are in packedOnTap; the Save loop skips them and the beforeunload / Back guards stop counting them. Lines with a zero-qty
+table or a pinned batch missing its expiry are only staged, as before. tsc clean, build clean, lint only the pre-existing
+set-state-in-effect error. Deployed 7ede99e (Vercel success); warehouse smoke 14 routes same as baseline. A live Packed tap
+was not exercised on prod because it reserves real warehouse stock.
+
+### Item 9 (No plan lines), 2026-10-18 10:40 Dubai
+Source: machines_to_visit status in ('picked','cs_added'), is_included, plan_date = selected date (picker output; gate0
+manual confirm is off so these are the day's named machines). 18 Oct: 8 named, 3 with dispatch rows, so 5 red cards.
+The empty-state early return now still shows named machines. Refill rows query gained .limit(10000).
