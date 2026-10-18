@@ -16,13 +16,23 @@ import { createClient } from "@/lib/supabase/client";
 
 type ProposedOutcome = "redeploy" | "waste";
 type ConfirmOutcome =
-  "restocked" | "redeploy_pending" | "waste" | "acknowledged";
+  | "restocked"
+  | "redeploy_pending"
+  | "waste"
+  | "damaged"
+  | "acknowledged";
 
 // PRD-137 F3 bug, 2026-10-01: these two sources are acknowledge-only on the backend
 // (wm_confirm_line raises if p_outcome isn't 'acknowledged' for them) -- the stock
 // movement already happened before the row ever reaches this queue. No dropdown, no
 // disposal code, no split: just confirm it was received.
-const ACK_ONLY_SOURCES = new Set(["refill_return_ack", "quarantine_batch"]);
+// PRD-141 item 5: a machine-to-machine transfer moves no warehouse stock; the
+// warehouse only acknowledges that it saw it.
+const ACK_ONLY_SOURCES = new Set([
+  "refill_return_ack",
+  "quarantine_batch",
+  "m2m_transfer",
+]);
 function isAckOnly(row: QueueLine): boolean {
   return ACK_ONLY_SOURCES.has(row.source);
 }
@@ -33,7 +43,8 @@ interface QueueLine {
     | "dispatch_return"
     | "driver_expiry_check"
     | "refill_return_ack"
-    | "quarantine_batch";
+    | "quarantine_batch"
+    | "m2m_transfer";
   dispatch_id: string | null;
   machine_id: string;
   machine_name: string;
@@ -627,7 +638,9 @@ export default function WarehouseConfirmationsPanel() {
                         ? "quarantine"
                         : row.source === "refill_return_ack"
                           ? "return (needs review)"
-                          : "return"}
+                          : row.source === "m2m_transfer"
+                            ? "Machine transfer, no stock movement"
+                            : "return"}
                   </p>
                 </div>
                 <span
@@ -847,6 +860,9 @@ export default function WarehouseConfirmationsPanel() {
                                   Redeploy
                                 </option>
                                 <option value="waste">Waste</option>
+                                <option value="damaged">
+                                  Damaged (quarantine)
+                                </option>
                               </select>
                               {entry.outcome === "redeploy_pending" && (
                                 <select
@@ -935,6 +951,7 @@ export default function WarehouseConfirmationsPanel() {
                       <option value="restocked">Back to stock</option>
                       <option value="redeploy_pending">Redeploy</option>
                       <option value="waste">Waste</option>
+                      <option value="damaged">Damaged (quarantine)</option>
                     </select>
                   </label>
 

@@ -190,12 +190,16 @@ Lock taken 2026-10-18 00:55 Dubai. Real specs on main (PRD-138 7,562 bytes, PRD-
 verbatim). Evidence for every line is in `docs/prds/PRD-141-log.md` under "PRD-141c log".
 This table is updated after every item.
 
-| PRD / item               | Status               | Evidence / migration                                                                                           |
-| ------------------------ | -------------------- | -------------------------------------------------------------------------------------------------------------- |
-| 141 items 0 and 1 (swap integrity) | DONE | 20261018055751 + hotfix 20261018060733; FE reproduction on WH2-2001: Add New and Swap pod both now write the Remove leg; Warehouse Confirmations shows it |
-| 138 WS-A                 | ALREADY DONE         | bd13e1e, md5 equal for all 7 files                                                                             |
-| 138 WS-B = 141 item 13   | DONE                 | 20261017210334; only VOXDFC-1001/2006 flip; drift 0 rows                                                       |
-| 141 item 14              | DONE                 | 20261017210904; ACTIVATEMOE stays eligible with flags removed (rolled-back test)                               |
-| 138 WS-C.1               | DONE                 | drift_reason live in 20261017210904                                                                            |
-| 138 WS-C.2, WS-C.3       | BLOCKED (permission) | Routine prompt edit refused by the auto-mode classifier; text in docs/prds/PRD-138-wsc-drift-routine-prompt.md |
-| 141 item 15              | DONE                 | 20261017212132; empty-lane term in p_score and p_score_aed; VOX-aware fill ALREADY DONE                        |
+| PRD / item                         | Status               | Evidence / migration                                                                                                                                      |
+| ---------------------------------- | -------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 141 items 0 and 1 (swap integrity) | DONE                 | 20261018055751 + hotfix 20261018060733; FE reproduction on WH2-2001: Add New and Swap pod both now write the Remove leg; Warehouse Confirmations shows it |
+| 141 item 2 (returns to Central) | DONE | 20261018061825; Warehouse Confirmations and wh_approve paths credit WH_CENTRAL unless return_warehouse_id |
+| 141 item 3 (split by expiry) | ALREADY DONE | branch merged in main; 5 units / 2 expiries -> 2 WH_CENTRAL rows (rolled-back test) |
+| 141 item 4 (Damaged outcome) | DONE | 20261018061825; damaged row quarantined (generated column), not pickable, shows on WH Quarantine |
+| 141 item 5 (M2M visibility) | DONE | 20261018061903; m2m_transfer line in Warehouse Confirmations, destination pod at confirmed qty |
+| 138 WS-A                           | ALREADY DONE         | bd13e1e, md5 equal for all 7 files                                                                                                                        |
+| 138 WS-B = 141 item 13             | DONE                 | 20261017210334; only VOXDFC-1001/2006 flip; drift 0 rows                                                                                                  |
+| 141 item 14                        | DONE                 | 20261017210904; ACTIVATEMOE stays eligible with flags removed (rolled-back test)                                                                          |
+| 138 WS-C.1                         | DONE                 | drift_reason live in 20261017210904                                                                                                                       |
+| 138 WS-C.2, WS-C.3                 | BLOCKED (permission) | Routine prompt edit refused by the auto-mode classifier; text in docs/prds/PRD-138-wsc-drift-routine-prompt.md                                            |
+| 141 item 15                        | DONE                 | 20261017212132; empty-lane term in p_score and p_score_aed; VOX-aware fill ALREADY DONE                                                                   |

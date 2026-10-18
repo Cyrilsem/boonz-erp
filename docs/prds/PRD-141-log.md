@@ -936,6 +936,7 @@ function, v_machine_eligibility_drift 0 rows.
 Applied 09:57 Dubai (prepared file, unchanged). FE reproduction, production
 boonz-erp.vercel.app, warehouse@boonz.test in a headless browser, test machine WH2-2001-3000-O1, date
 19 Oct (Packing "tomorrow"):
+
 1. Packing > "+ Add product" > Add New, shelf A09, Vitamin Well - Antioxidant x2: the Add New was
    REFUSED with "no Active product_mapping for boonz_product d19fbbbd (M&M Bag - Brown Bag)". Cause:
    the new hook tried to write the Remove leg for the product physically on A09, which has no
@@ -960,8 +961,19 @@ boonz-erp.vercel.app, warehouse@boonz.test in a headless browser, test machine W
    UI path that produced no Remove before: both "+ Add product > Add New" and "Swap pod" on a lane
    without a planned line of the old product (Swap: the physical stock was never removed even with one).
 5. Cleanup: all 9 test rows soft-removed with remove_dispatch_row (include = false), reason logged.
-FE: Dispatch Detail shows "Return of N x <product> to confirm at warehouse" under every Remove that is
-not an in-machine move. The spec's swap_dispatch_lane RPC and feature flag were not needed: the
-existing Swap RPC now writes both legs.
-Observation for PRD-142: swap_shelf_pod still nets a planned Refill of the old product with a Remove of
-the same quantity instead of cancelling the Refill, so the old product is still packed and comes back.
+   FE: Dispatch Detail shows "Return of N x <product> to confirm at warehouse" under every Remove that is
+   not an in-machine move. The spec's swap_dispatch_lane RPC and feature flag were not needed: the
+   existing Swap RPC now writes both legs.
+   Observation for PRD-142: swap_shelf_pod still nets a planned Refill of the old product with a Remove of
+   the same quantity instead of cancelling the Refill, so the old product is still packed and comes back.
+
+### PRD-141 items 2, 3, 4, 5 - DONE (migrations 20261018061825, 20261018061903; FE)
+
+Applied 10:18 / 10:19 Dubai, bodies identical to the dry-run-proven prepared files (evidence in the
+"prepared" sections above: Remove from a WH_MCC machine credited to WH_CENTRAL in two expiry rows;
+damaged row quarantined, not pickable; M2M line visible and acknowledged; destination pod at the
+confirmed quantity). Item 3 is ALREADY DONE (branch return-split-by-expiry is in main; per-expiry
+breakdown live on Dispatch Detail and Warehouse Confirmations) and its spec test passes on the new
+Central routing (5 units, two expiries, two WH_CENTRAL rows).
+FE (WarehouseConfirmationsPanel): outcome "Damaged (quarantine)" in both outcome pickers; source
+m2m_transfer is acknowledge-only and labelled "Machine transfer, no stock movement".
