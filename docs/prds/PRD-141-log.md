@@ -1063,3 +1063,11 @@ removing its Al Ain line in the test); the ok branch re-wraps the unchanged sing
 in pg_proc. FE: RefillPlanningTab approvePlan read only the RPC error and always said "Plan approved" (a gate failure
 returns status error without raising); it now shows "Approval failed: <machine>: <gate>" or "Partly approved (...)",
 and keeps the plan on screen. RefillPlanReview single-machine approve also reads status "error" and keeps the rows.
+
+### Gates and closeout, 2026-10-18 11:50 Dubai
+Overload check 0 / 0; anon definers 0; eligibility drift 0 rows; parity since 13 Oct 39 / 39 both directions;
+check_mapping_split_sums 0 violations; VOXDFC-1001 / 2006 eligible but include_in_refill false (absent from
+v_machine_priority). Final warehouse smoke on production 514e288: 14 routes as in the morning, markers In the van,
+No plan lines, bags from; Relabels tab loads read-only for warehouse. Vercel status success on all 19 code commits.
+PRD-140 items 5 to 7 BLOCKED (credentials): role_area_defaults reproduce FIELD_ROUTE_RULES for every role, with the
+/field/dispatching/pick longest-match catch recorded in the report.

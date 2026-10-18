@@ -211,6 +211,8 @@ This table is updated after every item.
 | 141 item 26 (Remove lot FEFO within product) | DONE | 20261018073655; prod repro: Remove of cd5fd194 on a two-product shelf bound the other product's lot 5ab80cd6, now binds its own lot e11f74ac (rolled-back test) |
 | 141 item 26 optional p_pod_lot_id | BLOCKED (permission) | needs DROP FUNCTION + CREATE to add an argument without an overload; the Supabase MCP refuses any statement containing DROP in this session |
 | 141 item 27 (approve per machine) | DONE | 20261018074026; multi-machine approve runs each machine in its own subtransaction and returns ok / partial / error with results per machine (rolled-back test on 16 Oct: AMZ-1029 G8, AMZ-1038 G8 x2, IFLYMCC nothing_pending, each named); FE Refill Planning shows Partly approved / Approval failed with the machine and gate, Plan Review keeps the rows on a gate failure |
+| 140 items 5, 6, 7 (middleware, sidebar, delete role arrays) | BLOCKED (credentials) | acceptance is a live smoke test as operator_admin, warehouse and field_staff; only the warehouse test login exists, creating users or role values is forbidden and reading the service key was refused, so a middleware change could not be checked for two of the three roles. Resolver parity checked in prod instead (see gates) |
+| 139 leftovers: item 5 (undelivered bags), item 7 (per-line save), item 9 (pack immediate write) | DONE | via PRD-141 items 17, 20 and 8 above |
 | 138 WS-A                           | ALREADY DONE         | bd13e1e, md5 equal for all 7 files                                                                                                                        |
 | 138 WS-B = 141 item 13             | DONE                 | 20261017210334; only VOXDFC-1001/2006 flip; drift 0 rows                                                                                                  |
 | 141 item 14                        | DONE                 | 20261017210904; ACTIVATEMOE stays eligible with flags removed (rolled-back test)                                                                          |
@@ -221,3 +223,127 @@ This table is updated after every item.
 | 141 item 10 (effective mapping) | DONE | 20261017213720; machine Active rows win, split 0 and inactive-only block; G11_mapping_blocks names the row (VML-1004 A16 test) |
 | 141 item 11 (mapping hygiene) | DONE | 20261017214206; 375 splits normalised to 100, backup table, nightly check cron 89; promotion of 30 machine-only SKUs is a CS approval list (docs/prds/PRD-141-mapping-hygiene-list.md) |
 | 141 item 12 (off-plan additions to the pod) | ALREADY DONE | 17 off-plan ACTIVATE lines since 1 Oct all reached pod_inventory; transient WH_CENTRAL row nets to 0 |
+
+## PRD-141c gates
+
+| Gate | Result | Evidence |
+| --- | --- | --- |
+| PRD-141 section 3: swap writes a Remove and a Confirmation | PASS (code), 14-day data window starts today | FE reproduction on WH2-2001 (Add New and Swap pod both write the Remove, Confirmations shows it); 0 Add New lanes written since the fix at 09:57 Dubai, so the 14-day count starts now |
+| PRD-141 section 3: returns to Central, split by expiry, Damaged, M2M in Confirmations | PASS | items 2 to 5 rolled-back tests |
+| PRD-141 section 3: pack max equals pickable stock with a reason; receipt expiry edit moves the batch | PASS | items 6 and 7 |
+| PRD-141 section 3: no Not filled on 0% or inactive mapping for 14 days; splits sum to 100 | PASS for splits (check_mapping_split_sums: 0 violations); 14-day window starts today | items 10 and 11 |
+| PRD-141 section 3: VOXDFC 1001 and 2006 in P1; selling machines eligible; empty lanes rank higher | PARTIAL | both are eligible (is_eligible_machine true, drift 0 rows) but absent from v_machine_priority because include_in_refill = false on both machines, a CS ops switch; empty-lane weight live (item 15) |
+| PRD-141 section 3: undelivered bags on Home; days_since_visit moves on delivery | PASS | "In the van" on the warehouse Home in production; AMZ-1029 days_since_visit 4 from delivered_at |
+| PRD-141 section 3: standard swaps push with no workaround; relabels in Config | PASS | items 0, 1, 21, 22; Relabels tab live (warehouse sees the list, Mark done is operator-only) |
+| PRD-141 section 3: WS-A/B, the 13 to 14 Oct RLS migrations and return-split-by-expiry on main; 0 prod-only migrations | PASS | 20261013073741, 20261013074915, 20261014065707 in repo; parity below |
+| PRD-138 WS-B 1: v_machine_eligibility_drift 0 rows | PASS | 0 rows at 11:45 Dubai |
+| PRD-138 WS-B 2 and 3: both VOXDFC machines graded in v_machine_priority and in the next plan | FAIL (CS ops decision) | include_in_refill = false on VOXDFC-1001 and VOXDFC-2006 keeps them out of the priority view and the plan; flipping it is a CS decision, not code |
+| PRD-140 section 7 | see the CS section below | |
+| Overload check | PASS | check_ambiguous_function_overloads(): 0 ambiguous, 0 anon-executable definers (after items 24/25 and again after 27: one approve_refill_plan, one add_dispatch_row) |
+| Migration parity, both directions | PASS for everything since 13 Oct | 39 versions, 0 prod-only, 0 repo-only (includes the peer PRD-142a migrations). The whole-history count differs (2,066 prod rows, 1,344 timestamped files) as it did before this loop |
+| Anon-executable SECURITY DEFINER count | PASS | 0 |
+| v_machine_eligibility_drift | PASS | 0 rows |
+| Three-role smoke test | warehouse PASS live; operator_admin and field_staff DB-level only | warehouse on production after the last deploy (514e288): all 14 morning routes 200, product-naming and /app/financials bounce to /field as in the morning, new markers present; the known 3 to 5 console 403s on /field/orders are unchanged from the morning. No operator_admin or field_staff login exists for this session |
+| PRD-140 resolver parity (extra, for items 5 to 7) | PASS with one catch | role_area_defaults reproduce FIELD_ROUTE_RULES for every role; catch: field_staff holds /field/dispatching but not /field/dispatching/pick, so item 5 must take the longest match over the whole catalog, not over the user's own areas, or drivers gain the pick list |
+
+## For CS, plain English (PRD-141c)
+
+### Items
+
+| PRD | Item | Status |
+| --- | --- | --- |
+| 141 | 0, 1 swap integrity | Done |
+| 141 | 2 returns to Central | Done |
+| 141 | 3 split by expiry | Already done |
+| 141 | 4 Damaged outcome | Done |
+| 141 | 5 machine transfers in Confirmations | Done |
+| 141 | 6 pickable stock | Done |
+| 141 | 7 receipt expiry moves the batch | Done |
+| 141 | 8 pack writes on tap | Done |
+| 141 | 9 No plan lines on the packing list | Done |
+| 141 | 10 effective mapping | Done |
+| 141 | 11 mapping hygiene | Done, promotion list waits for you |
+| 141 | 12 off-plan additions go to the pod | Already done |
+| 141 | 13 = 138 WS-B era-aware eligibility | Done |
+| 141 | 14 selling machines are eligible | Done |
+| 141 | 15 empty-lane weighting | Done |
+| 141 | 16 new-machine mode | Done (velocity uses the higher of own and category, logged) |
+| 141 | 17, 18 bags in the van, top-up tag | Done |
+| 141 | 19 days since visit on delivery | Done |
+| 141 | 20 driver quantity edits | Done, phone check by a driver still to do |
+| 141 | 21, 22 slot guard names, relabel list | Done |
+| 141 | 23 WEIMI drift report | Done; weekly auto-fix blocked |
+| 141 | 24, 25 reject lines, one push per machine | Done |
+| 141 | 26 Remove uses the right lot | Done; optional lot argument blocked |
+| 141 | 27 approve per machine | Done |
+| 138 | WS-A | Already done |
+| 138 | WS-B | Done; 2 of 3 checks wait on your include_in_refill switch |
+| 138 | WS-C.1 drift labels | Done |
+| 138 | WS-C.2, WS-C.3 routine prompt | Blocked (the session could not edit your scheduled routine) |
+| 140 | 5, 6, 7 | Blocked (no admin or driver test login to check them) |
+| 139 | 5, 7, 9 leftovers | Done through 141 items 17, 20, 8 |
+
+### Migrations applied to prod and committed (19)
+
+20261017210334 prd138_wsb_era_aware_eligibility, 20261017210904 prd141_14, 20261017212132 prd141_15,
+20261017212834 prd141_16, 20261017213720 prd141_10, 20261017214206 prd141_11, 20261018055751 prd141_01,
+20261018060733 prd141_01b, 20261018061825 prd141_02_04, 20261018061903 prd141_05, 20261018062138 prd141_06,
+20261018062325 prd141_07, 20261018063550 prd141_17_18, 20261018063902 prd141_19, 20261018064046 prd141_21_22,
+20261018064308 prd141_23, 20261018064411 prd141_24_25, 20261018073655 prd141_26, 20261018074026 prd141_27.
+Every one has a rollback file in supabase/rollbacks/.
+
+### Commits
+
+ed9feaa, 991cab4, 2f4c910, 0090dcf, 9710839, 513812e, e83fe62, d699dee, 383300d, 77af963, 34f89b6, 7ede99e,
+7d3287c, de9a23e, 1ff681b, 2028c4c, ea46c45, e648257, 359c9c3, 1a85eb9, 514e288, 72d2ac4, plus the report and
+lock commits. All on main and pushed. Vercel deployed every code commit automatically (GitHub status success
+for each, last one 514e288); nothing for you to deploy.
+
+### What changed on screen
+
+- Warehouse (Simran): Home has an "In the van" card listing bags picked up and not delivered, red when they are
+  from an earlier day. Packing list shows a red "No plan lines" card for a machine picked for the day with
+  nothing to pack. Tapping Packed now saves that line straight away. Pack screen max is the pickable stock and
+  the error says why (quarantined, expiring before the floor). A pack screen for a machine with bags still in
+  the van says "Deliver with the bags of <date>". Warehouse Confirmations has a "Damaged (quarantine)" option,
+  returns go to Central, and machine-to-machine transfers show as "Machine transfer, no stock movement".
+  Editing a received PO line's expiry tells her how many warehouse batches moved. Config > Machines has a
+  Relabels tab (read only for her).
+- Drivers (Anthony, Jojo): Dispatch Detail's pencil now offers shelf and product only (the quantity tab could
+  never save on a packed line); the quantity is the stepper on the line, and after Save each line shows a green
+  "Saved: N added" (or removed, or returned). Remove lines from a swap say "Return of N x <product> to confirm at
+  warehouse". Dispatching shows a red "+N bags from <date>" badge on machines with older bags in the van.
+- You (operator_admin): everything above, plus Mark done on Config > Machines > Relabels, plan rejects that
+  only touch the selected date, and approvals that say which machine failed and why instead of "Plan approved".
+
+### What you need to do
+
+1. Nothing to deploy: Vercel picked up every commit.
+2. Relabels: every swap now opens a line in Config > Machines > Relabels. When the lane is renamed in WEIMI,
+   tap Mark done. The list is empty right now.
+3. Approve or edit the mapping promotion list in docs/prds/PRD-141-mapping-hygiene-list.md (30 machine-only
+   SKUs that sell on 2 or more machines); the apply SQL is in the file.
+4. VOXDFC-1001 and VOXDFC-2006 are eligible but have include_in_refill switched off. Switch it on if you want
+   them in the plan (this closes PRD-138 WS-B checks 2 and 3).
+5. Paste the text in docs/prds/PRD-138-wsc-drift-routine-prompt.md into your scheduled drift routine
+   (~/Documents/Claude/Scheduled/boonz-build-drift-check/SKILL.md). The session was not allowed to edit it.
+6. Ask a driver to try a quantity change on Dispatch Detail on their phone and press Save (item 20 phone check).
+7. For PRD-140 items 5 to 7: give the next session an operator_admin and a field_staff test login (or run the
+   three-role smoke yourself). Point it at the /field/dispatching/pick catch in the gates table.
+8. PRD-140 section 7 how-tos (unchanged, items 1 to 4 shipped earlier): create a user and change a role in
+   Settings > Users; grant Jojo packing as an override there (area field.packing); disable Test Driver and Test
+   Warehouse only after everyone is on personal logins.
+
+### Left for PRD-142
+
+- Optional p_pod_lot_id on add_dispatch_row (needs DROP FUNCTION, which this session could not run).
+- Weekly auto-commit of WEIMI counts into pod_inventory (item 23); the nightly report shows 534 lanes on 35
+  machines differ by more than 2 units today.
+- Legacy undelivered rows (56 from March to September plus a 2030 VOXMCC row) that the in-van view ignores.
+- swap_shelf_pod still nets only the planned quantity; align_pod_lots cron failures; consumers that divide by a
+  flat 30 days; set_machine_weimi_slot_guard_override and warehouse_damage_writeoff still accept a p_caller
+  argument from the client; 2030-dated VOXMCC plan rows.
+- A watchdog raises "migration_in_window" for each daytime migration; today's were planned day-block items.
+- PRD-140 items 5 to 7 and PRD-138 WS-C.2/3 as above.
+
+## PRD-141 DONE
