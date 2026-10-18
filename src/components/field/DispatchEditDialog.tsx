@@ -13,6 +13,7 @@ import {
   listActiveMachines,
   type EditRole,
   type SourceKind,
+  getPickableStockMessage,
 } from "@/app/(field)/field/_actions/dispatch-edits";
 import { WH_CENTRAL_ID } from "@/lib/dispatch-constants";
 
@@ -109,7 +110,12 @@ export function DispatchEditDialog({
           // PRD-137 F6: catch an over-cap qty client-side before ever calling the RPC,
           // so the driver sees the real limit instead of a raised error after the fact.
           if (maxAvailable != null && qty > maxAvailable) {
-            setError(`Max available: ${maxAvailable}`);
+            // PRD-141 item 6: name the number and why it is what it is.
+            const why = await getPickableStockMessage(dispatchId);
+            setError(
+              `Max available: ${maxAvailable}` +
+                (why.ok && why.data ? ` (${why.data})` : ""),
+            );
             return;
           }
           // PRD-049 Phase C: an M2M transfer is a paired Remove+Add New. Editing one

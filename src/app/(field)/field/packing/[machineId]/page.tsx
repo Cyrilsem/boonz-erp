@@ -137,6 +137,16 @@ const whLabel = (id: string): string => WH_NAMES[id] ?? `WH ${id.slice(0, 8)}`;
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
 /** Format a YYYY-MM-DD date string as "12 Jul 26" */
+/** PRD-141 item 6: lots expiring before this date are not pickable for a pack on
+ *  `packDate` (refill_policy_params.min_shelf_life_days, default 14; same rule as
+ *  the pickable_stock RPC). */
+const MIN_SHELF_LIFE_DAYS = 14;
+function shelfLifeCutoff(packDate: string): string {
+  const d = new Date(packDate + "T00:00:00Z");
+  d.setUTCDate(d.getUTCDate() + MIN_SHELF_LIFE_DAYS);
+  return d.toISOString().slice(0, 10);
+}
+
 function formatExpiry(dateStr: string): string {
   return new Date(dateStr + "T00:00:00").toLocaleDateString("en-GB", {
     day: "numeric",
@@ -815,10 +825,17 @@ export default function PackingDetailPage() {
         expiry_date: b.expiration_date,
         available: b.warehouse_stock ?? 0,
       });
-      stockMap.set(
-        b.boonz_product_id,
-        (stockMap.get(b.boonz_product_id) ?? 0) + (b.warehouse_stock ?? 0),
-      );
+      // PRD-141 item 6: the per-product cap counts only lots that pickable_stock counts
+      // (expiry on or after the pack date + refill_policy_params.min_shelf_life_days).
+      if (
+        !b.expiration_date ||
+        b.expiration_date >= shelfLifeCutoff(selectedDate)
+      ) {
+        stockMap.set(
+          b.boonz_product_id,
+          (stockMap.get(b.boonz_product_id) ?? 0) + (b.warehouse_stock ?? 0),
+        );
+      }
       // Track earliest expiry (rows are already ordered ASC NULLS LAST)
       if (b.expiration_date) {
         const existing = earliestExpiryMap.get(b.boonz_product_id);
@@ -1093,17 +1110,10 @@ export default function PackingDetailPage() {
         fifo_expiry: fifo.primary_expiry,
         expiry_date: (line.expiry_date as string | null) ?? null,
         allocations: fifo.allocations,
-        warehouse_stock: (() => {
-          const bpId = line.boonz_product_id ?? "";
-          const lineExpiry = (line.expiry_date as string | null) ?? null;
-          const exactKey = `${bpId}|||${lineExpiry ?? "null"}`;
-          const exact = whStockMap.get(exactKey) ?? 0;
-          const total = stockMap.get(bpId) ?? 0;
-          // If the exact batch the dispatch line was last packed against is now
-          // exhausted/inactive, fall back to total Active stock for this SKU so
-          // the "No stock found" warning only fires when the product is truly OOS.
-          return exact > 0 ? exact : total;
-        })(),
+        // PRD-141 item 6 (B1): the cap is the product's pickable stock, not the one
+        // batch the line was pinned to (a small pinned batch made "max available"
+        // refuse quantities that other batches could cover).
+        warehouse_stock: stockMap.get(line.boonz_product_id ?? "") ?? 0,
         variantStocks,
         singleBatches,
         boonz_display_name: boonzDisplayName,

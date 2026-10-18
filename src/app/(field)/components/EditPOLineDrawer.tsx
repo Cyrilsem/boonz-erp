@@ -115,12 +115,15 @@ export function EditPOLineDrawer({
   const [loading, setLoading] = useState(false);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  // PRD-141 item 7: how many received warehouse batches followed an expiry edit.
+  const [notice, setNotice] = useState<string | null>(null);
 
   useEffect(() => {
     if (!open) {
       setLines([]);
       setReason("");
       setError(null);
+      setNotice(null);
       return;
     }
 
@@ -197,6 +200,7 @@ export function EditPOLineDrawer({
     setSaving(true);
     const supabase = createClient();
     const errors: string[] = [];
+    let batchesMoved = 0;
 
     for (const d of changed) {
       const locked = qtyPriceLocked(d, userRole);
@@ -222,12 +226,16 @@ export function EditPOLineDrawer({
         args.p_new_expiry_date = expiryParsed;
       }
 
-      const { error: rpcErr } = await supabase.rpc(
+      const { data: rpcData, error: rpcErr } = await supabase.rpc(
         "edit_purchase_order_line",
         args,
       );
       if (rpcErr) {
         errors.push(`${d.product_name}: ${rpcErr.message}`);
+      } else {
+        batchesMoved +=
+          (rpcData as { wh_batches_updated?: number } | null)
+            ?.wh_batches_updated ?? 0;
       }
     }
 
@@ -239,6 +247,12 @@ export function EditPOLineDrawer({
     }
 
     onSaved();
+    if (batchesMoved > 0) {
+      setNotice(
+        `${batchesMoved} warehouse batch${batchesMoved === 1 ? "" : "es"} updated to the new expiry.`,
+      );
+      return;
+    }
     onClose();
   }
 
@@ -383,6 +397,11 @@ export function EditPOLineDrawer({
           {error && (
             <p className="mt-2 whitespace-pre-wrap text-sm text-red-600 dark:text-red-400">
               {error}
+            </p>
+          )}
+          {notice && (
+            <p className="mt-2 text-sm text-emerald-700 dark:text-emerald-400">
+              {notice}
             </p>
           )}
           <div className="mt-3 flex gap-2">

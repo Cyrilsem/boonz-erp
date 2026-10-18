@@ -977,3 +977,13 @@ breakdown live on Dispatch Detail and Warehouse Confirmations) and its spec test
 Central routing (5 units, two expiries, two WH_CENTRAL rows).
 FE (WarehouseConfirmationsPanel): outcome "Damaged (quarantine)" in both outcome pickers; source
 m2m_transfer is acknowledge-only and labelled "Machine transfer, no stock movement".
+
+### PRD-141 items 6 and 7 - DONE (migrations 20261018062138, 20261018062325; FE)
+
+Applied 10:21 / 10:23 Dubai (dry-run-proven bodies). FE item 6: the pack screen cap
+(line.warehouse_stock, which drives "max available", "N units available" and the edit cap) is the
+product's pickable stock with the 14-day shelf-life floor, no longer the single pinned batch (the B1
+cause); DispatchEditDialog shows "Max available: N (12 pickable, 30 on hand: 18 quarantined, 0
+expiring before 31 Oct)" from pickable_stock via server action getPickableStockMessage. FE item 7: the
+PO line drawer shows "N warehouse batches updated to the new expiry" when a received line's expiry moves
+batches. Evidence of the DB behaviour is in the prepared-item sections above.

@@ -353,6 +353,29 @@ export async function listSubstituteProducts(machineId: string) {
   return { ok: true as const, data: rows, error: undefined };
 }
 
+// ─── 3b) pickable_stock message (PRD-141 item 6) ──────────────────────────────
+// Explains the pack-screen cap: "12 pickable, 30 on hand: 18 quarantined, 0 expiring before 31 Oct".
+export async function getPickableStockMessage(
+  dispatchId: string,
+): Promise<ActionResult<string | null>> {
+  const supabase = await createClient();
+  const { data: line, error: lineErr } = await supabase
+    .from("refill_dispatching")
+    .select("boonz_product_id, dispatch_date, source_warehouse_id")
+    .eq("dispatch_id", dispatchId)
+    .maybeSingle();
+  if (lineErr) return { ok: false, error: lineErr.message };
+  if (!line?.boonz_product_id) return { ok: true, data: null };
+  const { data, error } = await supabase.rpc("pickable_stock", {
+    p_boonz_product_id: line.boonz_product_id,
+    p_warehouse_id: line.source_warehouse_id ?? null,
+    p_needed_by: line.dispatch_date,
+  });
+  if (error) return { ok: false, error: error.message };
+  const row = (data as { message: string }[] | null)?.[0];
+  return { ok: true, data: row?.message ?? null };
+}
+
 // ─── 4) add_dispatch_row ──────────────────────────────────────────────────────
 
 export async function addDispatchRow(input: {
