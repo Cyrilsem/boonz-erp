@@ -187,3 +187,14 @@ Files: `src/app/(app)/app/strategy/page.tsx` (tabs, `useRequireArea("app.strateg
 - Product drawer: now vs prime KPI cards, the numbers that fired the label, weekly series with the prime window shaded, best and worst machines, archetype bars, supply block, posture editor calling set_product_strategy, history.
 
 Gates so far: `npx tsc --noEmit` clean; eslint on the new files clean (fixed three react-hooks/set-state-in-effect errors by deriving loading and drawer state from a load key); `npm run build` passes, `/app/strategy` listed as a dynamic route. `npm ci` was run in this worktree (it had no node_modules); lockfile unchanged, no package added.
+
+### Gates and verification (11:15 Dubai)
+
+- Production check in Chrome (operator_admin session, read-only navigation): /app/strategy loads after deploy of aa918ab; Machines tab KPI strip (26 machines, AED 1,354 net rev per day, AED 508 GP per day, COGS coverage 96%), posture 2x2 with points, archetype legend, review panel with 26 open proposals, machine drawer for IRIS-1070 (adoption vs fleet median, hour and weekday charts, shelf grid); Products tab map with trails, chips, KPI strip (65 products, 165 units/week unserved), cluster table; product drawer for Coca Cola Mix. No console errors. Screenshots saved locally by the browser tool (not committed).
+- Writers: set_machine_strategy and set_product_strategy as operator_admin in a rolled-back transaction; both strategy_change_log rows written in the same transaction. No live posture was confirmed on CS's behalf.
+- Role refusals: warehouse@boonz.test get_strategy_machines refused; driver@boonz.test set_machine_strategy refused.
+- anon-executable SECURITY DEFINER: 0. All PRD-142a definer functions have anon EXECUTE false.
+- Overloads: none among PRD-142a functions.
+- Parity: 14 prd142a migration files = 14 prd142a schema_migrations rows.
+- PRD-141 functions: not defined in any prd142a file; md5 recorded in the report.
+- Nightly: 03:30 cron run succeeded on its own (33 s); full chain by hand 13.5 s.
