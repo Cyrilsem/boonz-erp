@@ -907,3 +907,21 @@ days, calling resync_pod_inventory_from_weimi(machine, false) inside a per-machi
 cron '20 0 * * 0' (Sunday 04:20 Dubai), switch refill_policy_params.weekly_resync_enabled. Given the
 size of the drift (hundreds of units per AMZ machine) and the align_pod_lots_to_weimi job failing on
 unique-index collisions (99 failures in 3 days, scoping agent), a supervised first run is the safer path.
+
+### PRD-141 items 24 and 25 (reject RPC, approve trigger): prepared and dry-run proven
+
+Found (scoping agent, verified here): the only cascading trigger is
+trg_refill_plan_output_approve_to_dispatch, AFTER UPDATE OF operator_status FOR EACH ROW, calling
+push_plan_to_dispatch(plan_date, machine) for every row that turns approved. Reject today is a raw FE
+update (RefillPlanReview.tsx:303-310) with no plan_date filter.
+Prepared supabase/prepared/prd141c/prd141_24_25_plan_output_tooling.sql: statement-level trigger with
+transition tables (one push per distinct plan_date + machine), reject_plan_lines(plan_date, machine_id,
+line_ids, reason) operator_admin / superadmin only, set-based.
+Measured (rolled back, 03:00): one push_plan_to_dispatch on a 6-line machine = 412 ms, so the old trigger
+pays that per approved row (about 16 s for 40 rows, plus 40 slot-guard runs). New trigger: approving
+6 pending rows of AMZ-1038 in one UPDATE = 314 ms total, 6 dispatch rows written (one push).
+reject_plan_lines on a 40-row SAP-2002 clone: rejected 40 in 81 ms as operator_admin; as warehouse:
+"reject_plan_lines: forbidden for role warehouse, operator_admin only". Spec gate (< 5 s on 40 rows) PASS.
+Note: the first two combined dry runs failed with the connector's "Invalid or expired requestState"
+(long requests); split runs with statement_timeout passed.
+FE (day): RefillPlanReview reject buttons call reject_plan_lines.
