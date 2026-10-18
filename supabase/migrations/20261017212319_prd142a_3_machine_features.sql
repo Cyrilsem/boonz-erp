@@ -8,7 +8,8 @@
 --   weekend = Saturday and Sunday (UAE weekend since 2022).
 --   dead shelf = a shelf in use (current product, or a sale in the window)
 --     selling less than one unit per 14 active days in the window.
---   drinks = boonz_products.attr_drink of the pod's main mapped product.
+--   drinks = boonz_products.attr_drink of the pod's main mapped product, or a
+--     drinks pod category (attr_drink alone proved unreliable).
 --   cv_monthly_12 = stddev_samp / avg of monthly net revenue over the last
 --     12 full calendar months inside the era; NULL under 4 full months.
 --   trend_30_vs_90 = avg daily net rev last 30 days / avg daily prior 60
@@ -158,10 +159,16 @@ BEGIN
   ),
   drinks AS (
     SELECT c.machine_id,
-           sum(p.units) FILTER (WHERE bp.attr_drink) / NULLIF(sum(p.units), 0) AS share
+           -- A drink = boonz_products.attr_drink, or a drinks pod category (attr_drink is
+           -- unreliable: Al Ain Zero read false on 2026-10-18).
+           sum(p.units) FILTER (WHERE bp.attr_drink OR pp.product_category IN
+             ('Water', 'Sparkling Water', 'Infused Water', 'Soft Drinks', 'Energy & Sports Drinks', 'Juice',
+              'Iced Coffee & Tea', 'Vitamin & Health Drinks', 'Protein Milk'))
+             / NULLIF(sum(p.units), 0) AS share
     FROM cur c
     JOIN fact_product_machine_daily p ON p.era_id = c.era_id AND p.d BETWEEN c.w_from AND v_as_of
     LEFT JOIN boonz_products bp ON bp.product_id = p.boonz_product_id
+    LEFT JOIN pod_products pp ON pp.pod_product_id = p.pod_product_id
     GROUP BY c.machine_id
   ),
   shelf_units AS (

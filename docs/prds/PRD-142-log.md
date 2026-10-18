@@ -39,7 +39,7 @@ Other findings that shape Phase 1:
 - Partner machines that sell but have include_in_refill false: 4 VOX, 3 LVLUP. They get eras and facts; the strategy page lists include_in_refill machines plus any machine with a sale in the last 30 days.
 - pg_cron: 03:30 Dubai = `30 23 * * *` UTC. Two existing jobs at that minute (bug006_007_nightly_check, prd129r machine health); both are checks, no conflict with PRD-141 writes.
 
-### Item 3.1 machine_eras: DONE (02:15 Dubai)
+### Item 3.1 machine_eras: DONE (01:12 Dubai)
 
 Migration `20261017211208_prd142a_1_machine_eras.sql`: table `machine_eras` (one open era per machine, unique partial index), helpers `strategy_population(venue_group, official_name)` (the PRD-087 partner rule, one place) and `strategy_is_excluded_machine` (WH), and `sync_machine_eras()` (SECURITY DEFINER, service_role only) which seeds and then maintains eras nightly, writing a pre-acknowledged `monitoring_alerts` row (source `prd142_machine_eras`, a log not an ack gate) whenever it rolls or closes an era.
 
@@ -58,7 +58,7 @@ Evidence, machines with two eras:
 
 Defaults chosen: relaunched_at is converted to a Dubai date before use (NISSAN relaunched 2026-05-10 20:36 UTC = 05-11 Dubai). Machines with no boundary start at LEAST(installation_date, first sale) so no sale falls outside an era (NOOK installed 11-29, first sale 11-28). "Live" = include_in_refill or a sale in the last 30 days.
 
-### Item 3.2 fact tables: DONE (02:45 Dubai)
+### Item 3.2 fact tables: DONE (01:20 Dubai)
 
 Migration `20261017211607_prd142a_2_strategy_facts.sql`: `fact_machine_daily`, `fact_shelf_daily`, `fact_product_machine_daily`, `fact_product_weekly` (RLS on, admin-only select, anon revoked), helpers `strategy_shelf_code`, `strategy_size_class`, and `build_strategy_facts(p_from)` (SECURITY DEFINER, service_role only). Formulas registered in docs/architecture/METRICS_REGISTRY.md (section "PRD-142a").
 
@@ -72,7 +72,7 @@ Evidence:
 
 Defaults chosen: window = LEAST(p_from, Monday 60 weeks back) so fact_product_weekly always has 60 full weeks (spec default p_from of 400 days is under 60 weeks); facts end yesterday (Dubai), today's partial day excluded. fact_shelf_daily and fact_product_machine_daily are sparse (sale days only); dead shelves are measured against the current shelf configuration. population column added to fact_machine_daily and net_rev_exvat / machine_weeks to fact_product_weekly (additive). Machines with no shelf layout name match default to STANDARD_16; VOXDFC-1001 (renamed VOXMM-1001) keeps VOX_PREMIUM_13.
 
-### Item 3.3 machine_features: DONE (03:20 Dubai)
+### Item 3.3 machine_features: DONE (01:25 Dubai)
 
 Migration `20261017212319_prd142a_3_machine_features.sql`: `machine_features` (one row per machine with an open era per as_of, 400 days kept), `strategy_ramp_curve` (median cumulative net rev and units by day index from inception, per population, eras whose inception is inside the fact window, days 1 to 365), and `build_machine_features(p_as_of)` (SECURITY DEFINER, service_role only). Extra columns beyond the spec (additive): inception, active_days_90, peak_hours_90, shelves_configured.
 
@@ -90,7 +90,7 @@ Defaults: weekend = Saturday and Sunday. Lunch = Mon to Fri 11:00 to 14:59 Dubai
 
 Evidence, RAMPING machines (age < 90 days) with ramp_index: SAP-2002 (age 8) 3.22, BEBEACH-1069 (11) 1.65, IRIS-1070 (53) 0.70, AMZ-1046 (83) 1.00; partner ACTIVATEMOE-2007 (13) 5.00, VOXDFC-2006 (20) 1.67, VOXDFC-1001 (19) 0.92.
 
-### Item 3.4 product_supply_daily: DONE (03:35 Dubai)
+### Item 3.4 product_supply_daily: DONE (01:29 Dubai)
 
 Migration `20261017212841_prd142a_4_product_supply_daily.sql`: `product_supply_daily` and `build_product_supply(p_d)` (SECURITY DEFINER, service_role only). 169 pods per day, 0.09 s.
 
@@ -100,15 +100,31 @@ Fix while validating: deployed_units first came from pod_inventory and was infla
 
 Evidence (2026-10-18):
 
-| Pod | wh_units_central | wh_status | deployed | open PO | weekly rate | weeks of cover |
-| --- | --- | --- | --- | --- | --- | --- |
-| Hunter | 0 | none | 52 | 0 | 13.25 | 0.00 |
-| Dubai Popcorn | 16 | low | 36 | 24 | 17.25 | 0.93 |
-| Chocolate Bar (fan-out) | NULL | low | 723 | 0 | 184.50 | NULL |
-| Barebells | 5 | none | 300 | 300 | 76.50 | 0.07 |
+| Pod                     | wh_units_central | wh_status | deployed | open PO | weekly rate | weeks of cover |
+| ----------------------- | ---------------- | --------- | -------- | ------- | ----------- | -------------- |
+| Hunter                  | 0                | none      | 52       | 0       | 13.25       | 0.00           |
+| Dubai Popcorn           | 16               | low       | 36       | 24      | 17.25       | 0.93           |
+| Chocolate Bar (fan-out) | NULL             | low       | 723      | 0       | 184.50      | NULL           |
+| Barebells               | 5                | none      | 300      | 300     | 76.50       | 0.07           |
 
-### Nightly job: DONE (03:40 Dubai)
+### Nightly job: DONE (01:30 Dubai)
 
 Migration `20261017213013_prd142a_5_strategy_nightly_job.sql`: `run_strategy_nightly()` runs sync_machine_eras, build_strategy_facts, build_machine_features, build_product_supply, each isolated in its own exception block, and logs the run to monitoring_alerts (source `prd142_strategy_nightly`, pre-acknowledged info, or an unacknowledged warning if a step fails). pg_cron job 88 `prd142_strategy_nightly_0330_dubai` at `30 23 * * *` UTC = 03:30 Dubai. Run by hand: 6.25 s total (eras 0 changes, facts 5.79 s, features 0.29 s, supply 0.09 s).
 
 Phase 1 complete.
+
+### Session stall (logged 09:50 Dubai)
+
+The session stalled between 01:30 and 09:45 Dubai (no tool activity). The earlier "DONE (hh:mm)" stamps above were corrected to the real commit times. The 03:30 cron fired on its own while the session was stalled: `prd142_strategy_nightly_0330_dubai` succeeded at 03:30:00 Dubai in 33.4 s. On resume the Supabase MCP `apply_migration` returned "Invalid or expired requestState" for large payloads (the error PRD-140 and PRD-141 hit); small `execute_sql` calls kept working. Fallback used for item 4.3: the migration was applied in four `execute_sql` chunks and the schema_migrations row was inserted by hand (`created_by = 'prd142a-session-manual-insert'`), the same pattern PRD-141 used for PRD-140 item 1. Hard stop stays 15:48 Dubai; remaining items are prioritised: RPCs, proposals, product playbook, UI, gates.
+
+### Item 4.3 archetypes and K-means: DONE (09:58 Dubai)
+
+Migration `20261018055406_prd142a_6_machine_archetypes.sql` (applied via execute_sql chunks, see above): `machine_archetypes` (9 locked rules), `machine_archetype_assignment` (nightly, 400 days), `machine_archetype_override` (CS manual, kept until cleared), `strategy_change_log`, `strategy_rule_match()` (a small JSON rule evaluator) and `assign_machine_archetypes()` (SECURITY DEFINER, service_role only). First-ever assignment is not logged as a change; later changes write strategy_change_log.
+
+K-means doc: `docs/prds/PRD-142-kmeans.md` (Boonz k=4 silhouette 0.230, partner k=3 0.186) with the rule-by-rule reasoning. Script: `scripts/strategy/kmeans_diagnostic.py`.
+
+Spec rules changed by the data (each logged in the doc): SEASONAL_SWINGER CV threshold 0.45 to 0.60; LOBBY_TRICKLE peak-share condition dropped; CINEMA_IMPULSE weekend >= 0.40 replaced by weekend >= 0.30 and ticket >= 15; new fallbacks OFFICE_STANDARD (Boonz) alongside VENUE_STANDARD (partner).
+
+Data flag for CS: `boonz_products.attr_drink` is false for Al Ain Zero (it was true at 01:20). drinks_share now also counts drinks pod categories (build_machine_features patched; file md5 = prod md5).
+
+Counts (42 machines): OFFICE_LUNCH_ENGINE 8, PREMIUM_OFFICE 3, LOBBY_TRICKLE 4, OFFICE_STANDARD 1, GYM_GRAB 1, SEASONAL_SWINGER 5, RAMPING 7 (4 Boonz, 3 partner), CINEMA_IMPULSE 10, VENUE_STANDARD 3.
