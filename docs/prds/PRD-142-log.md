@@ -128,3 +128,16 @@ Spec rules changed by the data (each logged in the doc): SEASONAL_SWINGER CV thr
 Data flag for CS: `boonz_products.attr_drink` is false for Al Ain Zero (it was true at 01:20). drinks_share now also counts drinks pod categories (build_machine_features patched; file md5 = prod md5).
 
 Counts (42 machines): OFFICE_LUNCH_ENGINE 8, PREMIUM_OFFICE 3, LOBBY_TRICKLE 4, OFFICE_STANDARD 1, GYM_GRAB 1, SEASONAL_SWINGER 5, RAMPING 7 (4 Boonz, 3 partner), CINEMA_IMPULSE 10, VENUE_STANDARD 3.
+
+### Phase 3 additive (5.1 to 5.3): DONE (10:15 Dubai)
+
+Migrations (apply_migration worked again for these sizes): `20261018055728_prd142a_7_machine_strategy_tables.sql` (`strategy_posture_defaults` with the 5.1 params per posture and population, `machine_strategy`, `product_clusters` with all 32 current categories mapped to the 8 Portfolio Map clusters plus UNCLASSIFIED, `strategy_cluster()`), and `20261018060009_prd142a_8_posture_proposals.sql` (`propose_machine_postures()` service_role only; `set_machine_strategy(machine, posture, params, shelf_overrides, notes)` and `reject_machine_strategy_proposal(machine, reason)`, both SECURITY DEFINER, `is_admin(auth.uid())` checked, REVOKE public/anon, GRANT authenticated, every call writes strategy_change_log). md5 of every function body = prod.
+
+Rules as specified in 5.1 with these defaults: benchmark = median gp_day_90 (rev_day_90 when GP is NULL, i.e. partner until the share is set) of the same archetype and population excluding the machine itself, population median under 3 peers; lanes = v_shelf_capacity current products; peer lane rate = median net rev per lane per active day over peers carrying the pod. NOT_FLIPPABLE is never auto-proposed in 142a (needs two monthly review cycles); CS can set it. A rejected proposal is suppressed for 30 days (rejected_posture, rejected_until). The diagnosis sentence is SQL-generated and includes the category-balance clause (6.3) when a cluster is over-shelved by 15 points or more.
+
+First proposals (as_of 2026-10-17, 42 machines): PROTECT_GROW 24, FIX_MIX 10, WATCH_ADAPT 8. Examples:
+
+- HUAWEI-2003 (Office lunch engine) FIX_MIX: "GP 56% of Office lunch engine benchmark. Mix gap 40%: lanes A13, B14, A12 under 40% of peer median."
+- NOVO-1023 (Premium office) FIX_MIX: "GP 24% of Premium office benchmark. Mix gap 28%: lanes A04, A14, A07 under 40% of peer median. Dead shelves 56%. Biscuits, cakes and crackers over-shelved (lanes 25%, rev 9%)."
+- IRIS-1070 (Ramping, day 53) FIX_MIX: "Ramping, day 53: cumulative revenue 70% of the boonz fleet median at the same age. Mix gap 25%: lanes A03, A15, A01 under 40% of peer median."
+- MPMCC-1054 (Cinema impulse) WATCH_ADAPT: "Rev 76% of Cinema impulse benchmark. Mix on par (gap 15%). Rev down 15% vs prior 60 days. Baskets per day down 11%. Outside the machine."
