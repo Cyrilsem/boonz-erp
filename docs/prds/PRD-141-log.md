@@ -1008,3 +1008,9 @@ plus AMZ-1029 16 Oct 18 lines / 41 units and VML-1004 14 Oct 1 line / 4 units (o
 "In the van" card for all three role homes (own useEffect + createClient, .limit(10000)); Dispatching list red
 "+N bags from <date>" badge for machines with older in-transit bags; pack screen amber "Deliver with the bags of <date>"
 banner when any line comment carries the tag. tsc and build clean; lint only pre-existing set-state-in-effect errors.
+
+### Item 19 (days since visit on delivery), applied 2026-10-18 10:39 Dubai as 20261018063902
+Prepared file applied unchanged; all anchors held (receive_dispatch_line after the 02_04 patch still had one SET line).
+protect_packed_dispatch_row guards product/machine/shelf/date only, so the delivered_at backfill does not touch it.
+Read-back: 7,712 lines with delivered_at; receive_dispatch_line carries the stamp; v_machine_health_signals 35 rows and
+reads delivered_at; AMZ-1029 days_since_visit 4 (its 16 Oct bags are still in the van, item 17).
