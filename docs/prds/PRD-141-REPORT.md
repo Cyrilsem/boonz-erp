@@ -217,3 +217,7 @@ This table is updated after every item.
 | 138 WS-C.1                         | DONE                 | drift_reason live in 20261017210904                                                                                                                       |
 | 138 WS-C.2, WS-C.3                 | BLOCKED (permission) | Routine prompt edit refused by the auto-mode classifier; text in docs/prds/PRD-138-wsc-drift-routine-prompt.md                                            |
 | 141 item 15                        | DONE                 | 20261017212132; empty-lane term in p_score and p_score_aed; VOX-aware fill ALREADY DONE                                                                   |
+| 141 item 16 (new-machine mode) | DONE | 20261017212834; SAP-2002 and ACTIVATEMOE-2007 only; velocity mode floor = GREATEST(own, category), logged deviation (replace would under-plan ACTIVATEMOE); swaps off and slot guard warn for new machines |
+| 141 item 10 (effective mapping) | DONE | 20261017213720; machine Active rows win, split 0 and inactive-only block; G11_mapping_blocks names the row (VML-1004 A16 test) |
+| 141 item 11 (mapping hygiene) | DONE | 20261017214206; 375 splits normalised to 100, backup table, nightly check cron 89; promotion of 30 machine-only SKUs is a CS approval list (docs/prds/PRD-141-mapping-hygiene-list.md) |
+| 141 item 12 (off-plan additions to the pod) | ALREADY DONE | 17 off-plan ACTIVATE lines since 1 Oct all reached pod_inventory; transient WH_CENTRAL row nets to 0 |
