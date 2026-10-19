@@ -1,8 +1,8 @@
 "use client";
 
 import Link from "next/link";
-import { usePathname } from "next/navigation";
-import { useState } from "react";
+import { usePathname, useSearchParams } from "next/navigation";
+import { Suspense, useState } from "react";
 
 // PRD-087 P2 — grouped navigation.
 // 16 flat items → 4 titled sections + dashboard. Previously-orphaned pages
@@ -15,6 +15,8 @@ interface NavItem {
   href: string;
   icon: string;
   ownerOnly?: boolean;
+  // PRD-142b A5: sub-entries shown under the item; `tab` is matched against ?tab=.
+  children?: { label: string; href: string; tab: string }[];
 }
 
 interface NavSection {
@@ -56,7 +58,23 @@ const sections: NavSection[] = [
     title: "Commercial",
     items: [
       // PRD-142a: strategic oversight, operator_admin and superadmin only.
-      { label: "Strategy", href: "/app/strategy", icon: "◇" },
+      {
+        label: "Strategy",
+        href: "/app/strategy",
+        icon: "◇",
+        children: [
+          {
+            label: "Machines",
+            href: "/app/strategy?tab=machines",
+            tab: "machines",
+          },
+          {
+            label: "Products",
+            href: "/app/strategy?tab=products",
+            tab: "products",
+          },
+        ],
+      },
       { label: "Performance", href: "/app/performance", icon: "◆" },
       { label: "Financials", href: "/app/financials", icon: "$" },
       { label: "Consumers", href: "/refill/consumers", icon: "⇢" },
@@ -222,58 +240,84 @@ export default function SidebarNav({
                 {!collapsed && section.title}
               </div>
             )}
-            {section.items.map((item) => {
-              const active = isActive(item.href);
-              return (
-                <Link
-                  key={item.href}
-                  href={item.href}
-                  title={item.label}
-                  className="flex items-center gap-3 px-3 py-2 mx-1 rounded text-sm transition-colors"
-                  style={
-                    active
-                      ? {
-                          background: "var(--ink)",
-                          color: "white",
-                          fontWeight: 600,
-                        }
-                      : {
-                          color: "rgba(255,255,255,0.7)",
-                        }
-                  }
-                  onMouseEnter={(e) => {
-                    if (!active) {
-                      (e.currentTarget as HTMLAnchorElement).style.background =
-                        "rgba(255,255,255,0.10)";
-                      (e.currentTarget as HTMLAnchorElement).style.color =
-                        "white";
+            {section.items
+              .map((item) => {
+                const active = isActive(item.href);
+                return (
+                  <Link
+                    key={item.href}
+                    href={item.href}
+                    title={item.label}
+                    className="flex items-center gap-3 px-3 py-2 mx-1 rounded text-sm transition-colors"
+                    style={
+                      active
+                        ? {
+                            background: "var(--ink)",
+                            color: "white",
+                            fontWeight: 600,
+                          }
+                        : {
+                            color: "rgba(255,255,255,0.7)",
+                          }
                     }
-                  }}
-                  onMouseLeave={(e) => {
-                    if (!active) {
-                      (e.currentTarget as HTMLAnchorElement).style.background =
-                        "transparent";
-                      (e.currentTarget as HTMLAnchorElement).style.color =
-                        "rgba(255,255,255,0.7)";
-                    }
-                  }}
-                >
-                  <span
-                    className="w-5 text-center shrink-0"
-                    style={active ? { color: "var(--gold)" } : undefined}
+                    onMouseEnter={(e) => {
+                      if (!active) {
+                        (
+                          e.currentTarget as HTMLAnchorElement
+                        ).style.background = "rgba(255,255,255,0.10)";
+                        (e.currentTarget as HTMLAnchorElement).style.color =
+                          "white";
+                      }
+                    }}
+                    onMouseLeave={(e) => {
+                      if (!active) {
+                        (
+                          e.currentTarget as HTMLAnchorElement
+                        ).style.background = "transparent";
+                        (e.currentTarget as HTMLAnchorElement).style.color =
+                          "rgba(255,255,255,0.7)";
+                      }
+                    }}
                   >
-                    {item.icon}
-                  </span>
-                  <span
-                    className={
-                      collapsed ? "hidden max-md:hidden" : "max-md:hidden"
+                    <span
+                      className="w-5 text-center shrink-0"
+                      style={active ? { color: "var(--gold)" } : undefined}
+                    >
+                      {item.icon}
+                    </span>
+                    <span
+                      className={
+                        collapsed ? "hidden max-md:hidden" : "max-md:hidden"
+                      }
+                    >
+                      {item.label}
+                    </span>
+                  </Link>
+                );
+              })
+              .flatMap((link, ii) => {
+                const item = section.items[ii];
+                if (!item.children || collapsed) return [link];
+                const parentActive = isActive(item.href);
+                return [
+                  link,
+                  <Suspense
+                    key={`${item.href}-sub`}
+                    fallback={
+                      <SubLinks
+                        items={item.children}
+                        parentActive={parentActive}
+                        activeTab={null}
+                      />
                     }
                   >
-                    {item.label}
-                  </span>
-                </Link>
-              );
-            })}
+                    <SubLinksWithTab
+                      items={item.children}
+                      parentActive={parentActive}
+                    />
+                  </Suspense>,
+                ];
+              })}
           </div>
         ))}
       </nav>
@@ -301,5 +345,58 @@ export default function SidebarNav({
         </a>
       </div>
     </aside>
+  );
+}
+
+// PRD-142b A5: sub-entries (Strategy > Machines, Strategy > Products). The
+// search-param read sits behind its own Suspense so the sidebar never needs
+// one; the fallback renders the same links without a highlight.
+function SubLinksWithTab({
+  items,
+  parentActive,
+}: {
+  items: NonNullable<NavItem["children"]>;
+  parentActive: boolean;
+}) {
+  const params = useSearchParams();
+  return (
+    <SubLinks
+      items={items}
+      parentActive={parentActive}
+      activeTab={params.get("tab") ?? items[0]?.tab ?? null}
+    />
+  );
+}
+
+function SubLinks({
+  items,
+  parentActive,
+  activeTab,
+}: {
+  items: NonNullable<NavItem["children"]>;
+  parentActive: boolean;
+  activeTab: string | null;
+}) {
+  return (
+    <div className="max-md:hidden">
+      {items.map((c) => {
+        const active = parentActive && activeTab === c.tab;
+        return (
+          <Link
+            key={c.href}
+            href={c.href}
+            title={c.label}
+            className="mx-1 flex items-center rounded py-1 pl-11 pr-3 text-xs transition-colors"
+            style={
+              active
+                ? { color: "var(--gold)", fontWeight: 600 }
+                : { color: "rgba(255,255,255,0.6)" }
+            }
+          >
+            {c.label}
+          </Link>
+        );
+      })}
+    </div>
   );
 }
