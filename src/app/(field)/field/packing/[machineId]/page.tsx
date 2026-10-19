@@ -2472,6 +2472,10 @@ export default function PackingDetailPage() {
   // skip_dispatch_line runs, so they are no longer in `lines`. Count the genuinely
   // skipped (not cancelled) ones as resolved against the fillable total.
   const skippedActive = skippedLines.filter((s) => s.skipped && !s.cancelled);
+  // PRD-144 P1-4: "Skipped" is only what the packer skipped (skip_dispatch_line
+  // sets skipped=true). Lines the operator excluded or cancelled are listed apart.
+  const skippedOnly = skippedLines.filter((s) => s.skipped);
+  const removedByOperator = skippedLines.filter((s) => !s.skipped);
   const skippedCount = skippedActive.length;
   // Progress (AC-3): resolved = packed + not_filled + skipped over the included,
   // non-cancelled, fillable set, PLUS every non-gating line (Remove etc.) which the
@@ -5114,17 +5118,17 @@ export default function PackingDetailPage() {
         ))}
 
       {/* B3.1 Issue 6: skipped items recovery */}
-      {skippedLines.length > 0 && (
+      {skippedOnly.length > 0 && (
         <div className="mb-6">
           <h2 className="mb-3 flex items-center gap-2 text-sm font-bold uppercase tracking-wide text-neutral-500 dark:text-neutral-400">
             <span className="text-base">⏭</span> Skipped items
             <span className="ml-auto text-xs font-normal text-neutral-600 dark:text-neutral-300">
-              {skippedLines.length} item
-              {skippedLines.length !== 1 ? "s" : ""}
+              {skippedOnly.length} item
+              {skippedOnly.length !== 1 ? "s" : ""}
             </span>
           </h2>
           <ul className="space-y-1">
-            {skippedLines.map((s) => (
+            {skippedOnly.map((s) => (
               <li
                 key={s.dispatch_id}
                 className="flex items-start justify-between gap-2 rounded-lg border border-neutral-200 bg-neutral-50 px-3 py-2 text-sm dark:border-neutral-800 dark:bg-neutral-900"
@@ -5163,6 +5167,37 @@ export default function PackingDetailPage() {
             ))}
           </ul>
         </div>
+      )}
+
+      {/* PRD-144 P1-4: lines the operator took out of the plan, collapsed. */}
+      {removedByOperator.length > 0 && (
+        <details className="mb-6">
+          <summary className="mb-2 flex cursor-pointer items-center gap-2 text-sm font-bold uppercase tracking-wide text-neutral-500 dark:text-neutral-400">
+            Removed by operator
+            <span className="ml-auto text-xs font-normal text-neutral-600 dark:text-neutral-300">
+              {removedByOperator.length} item
+              {removedByOperator.length !== 1 ? "s" : ""}
+            </span>
+          </summary>
+          <ul className="space-y-1">
+            {removedByOperator.map((s) => (
+              <li
+                key={s.dispatch_id}
+                className="flex items-center gap-2 rounded-lg border border-neutral-200 bg-neutral-50 px-3 py-2 text-sm dark:border-neutral-800 dark:bg-neutral-900"
+              >
+                <span className="rounded bg-neutral-200 px-1.5 py-0.5 text-xs font-mono text-neutral-700 dark:bg-neutral-800 dark:text-neutral-200">
+                  {s.shelf_code}
+                </span>
+                <span className="truncate text-neutral-500 line-through decoration-neutral-400 dark:text-neutral-400">
+                  {s.display_name}
+                </span>
+                <span className="ml-auto shrink-0 text-xs text-neutral-500">
+                  {s.quantity}u{s.cancelled ? " · cancelled" : ""}
+                </span>
+              </li>
+            ))}
+          </ul>
+        </details>
       )}
 
       {/* PRD-030: confirm_machine_packed blocked — unresolved lines hold the gate */}
