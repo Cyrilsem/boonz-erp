@@ -317,6 +317,55 @@ function InTransitCard() {
   );
 }
 
+// PRD-144 P1-1: machine-days from earlier dates with lines still open.
+function PendingMachinesCard() {
+  const [rows, setRows] = useState<
+    { official_name: string; dispatch_date: string; open_lines: number }[]
+  >([]);
+  useEffect(() => {
+    const supabase = createClient();
+    supabase
+      .rpc("get_incomplete_dispatch_machines", { p_days: 14 })
+      .then(({ data }) =>
+        setRows(
+          (data as
+            | {
+                official_name: string;
+                dispatch_date: string;
+                open_lines: number;
+              }[]
+            | null) ?? [],
+        ),
+      );
+  }, []);
+  if (rows.length === 0) return null;
+  return (
+    <SectionCard
+      title={`Pending machines · ${rows.length}`}
+      linkTo="/field/dispatching?tab=pending"
+    >
+      <ul className="space-y-1">
+        {rows.slice(0, 5).map((r) => (
+          <li
+            key={`${r.official_name}-${r.dispatch_date}`}
+            className="flex items-center justify-between rounded-lg bg-amber-50 px-2 py-1 text-sm text-amber-900"
+          >
+            <span className="truncate">{r.official_name}</span>
+            <span className="shrink-0 text-xs">
+              {r.open_lines} open, from {r.dispatch_date}
+            </span>
+          </li>
+        ))}
+        {rows.length > 5 && (
+          <li className="px-2 text-xs text-gray-500">
+            +{rows.length - 5} more
+          </li>
+        )}
+      </ul>
+    </SectionCard>
+  );
+}
+
 // ─── Skeleton ─────────────────────────────────────────────────────────────────
 
 function Skeleton() {
@@ -373,6 +422,7 @@ function WarehouseHome({
       <p className="mb-4 text-sm text-neutral-500">{formatToday()}</p>
 
       <InTransitCard />
+      <PendingMachinesCard />
 
       {/* ── Section 1: Daily Refills ── */}
       <SectionCard
@@ -643,6 +693,7 @@ function DriverHome({
       <p className="mb-4 text-sm text-neutral-500">{formatToday()}</p>
 
       <InTransitCard />
+      <PendingMachinesCard />
 
       {/* ── Section 1: Today's Route ── */}
       <SectionCard
@@ -816,6 +867,7 @@ function OperatorAdminHome({
       <p className="mb-4 text-sm text-neutral-500">{formatToday()}</p>
 
       <InTransitCard />
+      <PendingMachinesCard />
 
       {/* ── Section 1: Daily Refills ── */}
       <SectionCard

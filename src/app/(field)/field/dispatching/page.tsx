@@ -2,10 +2,12 @@
 
 import { useEffect, useState, useCallback } from "react";
 import Link from "next/link";
+import { useSearchParams } from "next/navigation";
 import { createClient } from "@/lib/supabase/client";
 import { getDubaiDate } from "@/lib/utils/date";
 import { machineShortId } from "@/lib/utils/machine-id";
 import { FieldHeader } from "../../components/field-header";
+import PendingMachinesPanel from "@/components/field/PendingMachinesPanel";
 
 interface DispatchLineInfo {
   shelf_code: string | null;
@@ -32,7 +34,54 @@ function formatShortDate(dateStr: string): string {
   return d.toLocaleDateString("en-US", { month: "short", day: "numeric" });
 }
 
+// PRD-144 P1-1: Today (this page as it was) and Pending (earlier days with open lines).
+type DispatchTab = "today" | "pending";
+
+function DispatchTabs({
+  tab,
+  onChange,
+}: {
+  tab: DispatchTab;
+  onChange: (t: DispatchTab) => void;
+}) {
+  return (
+    <div className="mt-3 mb-3 flex rounded-lg bg-neutral-100 p-1 text-sm dark:bg-neutral-900">
+      {(["today", "pending"] as DispatchTab[]).map((t) => (
+        <button
+          key={t}
+          onClick={() => onChange(t)}
+          className={`flex-1 rounded-md py-1.5 font-semibold ${
+            tab === t
+              ? "bg-white text-[#24544a] shadow-sm dark:bg-neutral-800"
+              : "text-neutral-500"
+          }`}
+        >
+          {t === "today" ? "Today" : "Pending"}
+        </button>
+      ))}
+    </div>
+  );
+}
+
 export default function DispatchingPage() {
+  const searchParams = useSearchParams();
+  const [tab, setTab] = useState<DispatchTab>(
+    searchParams?.get("tab") === "pending" ? "pending" : "today",
+  );
+  const tabs = <DispatchTabs tab={tab} onChange={setTab} />;
+  if (tab === "pending") {
+    return (
+      <div className="px-4 py-4">
+        <FieldHeader title="Dispatching" />
+        {tabs}
+        <PendingMachinesPanel />
+      </div>
+    );
+  }
+  return <TodayDispatching tabs={tabs} />;
+}
+
+function TodayDispatching({ tabs }: { tabs: React.ReactNode }) {
   const [machines, setMachines] = useState<DispatchMachine[]>([]);
   const [loading, setLoading] = useState(true);
   const [expandedMachine, setExpandedMachine] = useState<string | null>(null);
@@ -192,6 +241,7 @@ export default function DispatchingPage() {
     return (
       <>
         <FieldHeader title="Dispatching" />
+        <div className="px-4">{tabs}</div>
         <div className="flex items-center justify-center p-8">
           <p className="text-neutral-500">Loading dispatching…</p>
         </div>
@@ -203,6 +253,7 @@ export default function DispatchingPage() {
     return (
       <>
         <FieldHeader title="Dispatching" />
+        <div className="px-4">{tabs}</div>
         <div className="flex flex-col items-center justify-center p-8 text-center">
           <p className="text-lg font-medium text-neutral-600 dark:text-neutral-400">
             No machines collected yet
@@ -236,6 +287,7 @@ export default function DispatchingPage() {
           </Link>
         }
       />
+      {tabs}
 
       {/* Day progress strip */}
       <div className="mt-3 mb-4 flex items-center gap-3">
