@@ -21,6 +21,7 @@ import {
   REMOVE_LEG_CHIP,
   REPACK_DESTRUCTIVE_WARNING,
 } from "../_lib/pack-messages";
+import { buildPackPicks, fefoAllocate } from "../_lib/build-picks";
 // ─── Types ────────────────────────────────────────────────────────────────────
 
 // PRD-030 partial-pack / no-dark-stage: "not_filled" = zero stock available, line
@@ -286,6 +287,14 @@ export default function PackingDetailPage() {
   const [saved, setSaved] = useState(false);
   const [editingAfterSave, setEditingAfterSave] = useState(false);
   const [whWarnMsg, setWhWarnMsg] = useState<string>("");
+  // PRD-144 P0-1: a pack write that fails also raises a toast, so the error is
+  // seen even when the packer is scrolled far below the top banner.
+  const [packToast, setPackToast] = useState<string>("");
+  useEffect(() => {
+    if (!packToast) return;
+    const t = setTimeout(() => setPackToast(""), 10000);
+    return () => clearTimeout(t);
+  }, [packToast]);
   /**
    * PRD-115 §2.3: how many lines the save loop found already committed under the
    * packer. ONE number feeding ONE banner, replacing the per-line warning wall
@@ -1678,22 +1687,7 @@ export default function PackingDetailPage() {
       line.warehouse_stock ??
       0;
     const qty = Math.max(0, Math.min(Math.trunc(qtyRaw || 0), cap));
-    const batches = [...(line.singleBatches ?? [])].sort((a, b) => {
-      if (a.expiry === b.expiry) return 0;
-      if (!a.expiry) return 1;
-      if (!b.expiry) return -1;
-      return a.expiry < b.expiry ? -1 : 1;
-    });
-    const alloc: Record<string, number> = {};
-    let remaining = qty;
-    for (const b of batches) {
-      if (remaining <= 0) break;
-      const take = Math.min(b.stock, remaining);
-      if (take > 0) {
-        alloc[b.wh_inventory_id] = take;
-        remaining -= take;
-      }
-    }
+    const alloc = fefoAllocate(line.singleBatches ?? [], qty);
     setBatchPickQtys((prev) => ({ ...prev, [line.dispatch_id]: alloc }));
     updateAction(line.dispatch_id, "packed");
   }
@@ -1828,39 +1822,23 @@ export default function PackingDetailPage() {
     // Build per-batch pick list. Every pick carries its own
     // boonz_product_id so mix lines (one parent → multiple variants)
     // pack atomically in one RPC call.
-    interface Pick {
-      wh_inventory_id: string;
-      qty: number;
-      boonz_product_id: string;
-    }
-    const picks: Pick[] = [];
-
-    if (isMixLine && line.variantStocks) {
-      for (const v of line.variantStocks) {
-        for (const b of v.batches) {
-          const qty = batchQtys?.[b.wh_inventory_id] ?? 0;
-          if (qty <= 0) return false;
-          if (frozenKeys.has(keyOf(v.boonzProductId, b.expiry))) return false;
-          picks.push({
-            wh_inventory_id: b.wh_inventory_id,
-            qty,
-            boonz_product_id: v.boonzProductId,
-          });
-        }
-      }
-    } else {
-      for (const b of line.singleBatches ?? []) {
-        const qty = batchQtys?.[b.wh_inventory_id] ?? 0;
-        if (qty <= 0) return false;
-        if (frozenKeys.has(keyOf(line.boonz_product_id, b.expiry)))
-          return false;
-        picks.push({
-          wh_inventory_id: b.wh_inventory_id,
-          qty,
-          boonz_product_id: line.boonz_product_id,
-        });
-      }
-    }
+    // PRD-144 P0-1: a lot with 0 picked (FEFO filled the earlier lots) or a
+    // frozen slice is skipped. It used to abandon the whole line silently.
+    const picks = buildPackPicks(
+      isMixLine && line.variantStocks
+        ? line.variantStocks.map((v) => ({
+            boonzProductId: v.boonzProductId,
+            batches: v.batches,
+          }))
+        : [
+            {
+              boonzProductId: line.boonz_product_id,
+              batches: line.singleBatches ?? [],
+            },
+          ],
+      batchQtys,
+      (bpId, exp) => frozenKeys.has(keyOf(bpId, exp)),
+    );
 
     // Zero picks: user intentionally packed 0 qty (e.g. shelf cleared,
     // product swapped out). Route through the canonical writer: picks
@@ -2002,6 +1980,7 @@ export default function PackingDetailPage() {
 
     if (warnings.length > 0) {
       setWhWarnMsg(warnings.join(" · "));
+      setPackToast(warnings.join(" · "));
     }
     // PRD-137 F6: clear every attempted line's previous per-card error, then reapply
     // this round's failures — a line that packed fine this time loses its stale error.
@@ -2391,7 +2370,10 @@ export default function PackingDetailPage() {
       delete merged[line.dispatch_id];
       return { ...merged, ...ctx.newLineErrors };
     });
-    if (ctx.warnings.length > 0) setWhWarnMsg(ctx.warnings.join(" · "));
+    if (ctx.warnings.length > 0) {
+      setWhWarnMsg(ctx.warnings.join(" · "));
+      setPackToast(ctx.warnings.join(" · "));
+    }
     if (ctx.overPicks.length > 0)
       setPickErrors((prev) => [...prev, ...ctx.overPicks]);
     if (ok) {
@@ -3035,6 +3017,15 @@ export default function PackingDetailPage() {
             </div>
           );
         })()}
+      {packToast && (
+        <div
+          role="alert"
+          className="fixed inset-x-4 bottom-20 z-50 mx-auto max-w-md rounded-xl bg-red-600 px-4 py-3 text-sm text-white shadow-lg"
+          onClick={() => setPackToast("")}
+        >
+          Pack not saved: {packToast}
+        </div>
+      )}
       {whWarnMsg && (
         <div className="mb-4 rounded-xl bg-amber-50 px-4 py-3 text-sm text-amber-800 dark:bg-amber-950/30 dark:text-amber-300">
           ⚠ {whWarnMsg}
