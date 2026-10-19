@@ -65,6 +65,14 @@ export default function ExpirySanityChecks({
   const [rows, setRows] = useState<SanityRow[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  // PRD-144 P1-5: a failed tap also raises a toast, visible wherever the
+  // driver has scrolled to.
+  const [toast, setToast] = useState<string | null>(null);
+  useEffect(() => {
+    if (!toast) return;
+    const t = setTimeout(() => setToast(null), 10000);
+    return () => clearTimeout(t);
+  }, [toast]);
   const [open, setOpen] = useState(false);
   const [busy, setBusy] = useState<string | null>(null);
   const [qtyDraft, setQtyDraft] = useState<Record<string, number>>({});
@@ -148,6 +156,7 @@ export default function ExpirySanityChecks({
     setBusy(null);
     if (rpcErr) {
       setError(rpcErr.message);
+      setToast(rpcErr.message);
       return;
     }
     // The tap already changed the shelf record - drop the row rather than
@@ -175,6 +184,15 @@ export default function ExpirySanityChecks({
 
   return (
     <div className="mb-4" data-tour="expiry-sanity-checks">
+      {toast && (
+        <div
+          role="alert"
+          onClick={() => setToast(null)}
+          className="fixed inset-x-4 bottom-20 z-50 mx-auto max-w-md rounded-xl bg-red-600 px-4 py-3 text-sm text-white shadow-lg"
+        >
+          Not saved: {toast}
+        </div>
+      )}
       <button
         onClick={() => setOpen((v) => !v)}
         className="mb-2 flex w-full items-center justify-between gap-2 text-left"
