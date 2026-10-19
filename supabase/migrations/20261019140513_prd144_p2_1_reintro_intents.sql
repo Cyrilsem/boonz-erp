@@ -7,10 +7,11 @@
 -- the slowest lanes; lanes already holding the product are skipped, and units of it elsewhere on the machine
 -- are reported). It writes nothing: the lane choice is made at Gate 1. engine_add_pod returns the same
 -- list under 'reintro_proposals' so the engine run shows them too.
--- Seeds: the two 8 Oct Red Bull removals (AMZ-1057-2403 A14 Red Bull Regular, AMZ-1029 A14 Red Bull 355ML),
--- min_wh_stock 24 (one tray), preferred_lane_size Medium (the lane they left). The PRD-143 list is not in
--- the repo or the database, so nothing else is seeded.
-
+-- Seeds: docs/prds/PRD-143-hero-reintroduction.md section C (28 rows). min_wh_stock per section B (one tray: 24 cans
+-- and bottles, 12 bars and snacks, 8 premium snacks). preferred_lane_size is the slot_profile_pool size with the highest
+-- fill for the product (ties go to Medium). Krambals and Popit: every flavour delivered to that machine. Item 7 machines
+-- come from the section E hero scan (hero on the machine, no stock there now). Not seeded: Red Bull 355ML at AMZ-1029
+-- (standing rule) and Vitamin Well (item 7 places it on Gatorade lanes, a lane rule this table cannot hold; held for CS).
 ALTER TABLE public.sku_intents DROP CONSTRAINT sku_intents_intent_check;
 ALTER TABLE public.sku_intents ADD CONSTRAINT sku_intents_intent_check
   CHECK (intent = ANY (ARRAY['deplete'::text, 'temp_out'::text, 'keep'::text, 'push'::text, 'reintro_when_stocked'::text]));
@@ -22,16 +23,52 @@ ALTER TABLE public.sku_intents ADD CONSTRAINT sku_intents_reintro_shape_check
 ALTER TABLE public.sku_intents ADD CONSTRAINT sku_intents_preferred_lane_size_check
   CHECK (preferred_lane_size IS NULL OR preferred_lane_size = ANY (ARRAY['Small'::text, 'Medium'::text, 'Large'::text]));
 
-INSERT INTO public.sku_intents (machine_id, boonz_product_id, intent, min_wh_stock, preferred_lane_size, note)
-SELECT s.machine_id, s.boonz_product_id, 'reintro_when_stocked', 24, 'Medium', s.note
-  FROM (VALUES
-    ('84386a8b-ba1c-4be1-aa51-a529203ecfb6'::uuid, 'd8096c9b-1dd7-42bf-96b8-a9aaae7132dc'::uuid,
-     'PRD-143: Red Bull Regular left AMZ-1057-2403 A14 on 8 Oct (swap to Huel); bring back when stocked'),
-    ('f1a528fb-15e8-4f20-b4e2-ebb2e6852198'::uuid, 'e21bae75-cdeb-42a9-b6ad-df8f5d4166dc'::uuid,
-     'PRD-143: Red Bull 355ML left AMZ-1029 A14 on 8 Oct (deplete done, Huel in); bring back when stocked')
-  ) AS s(machine_id, boonz_product_id, note)
- WHERE NOT EXISTS (SELECT 1 FROM public.sku_intents i WHERE i.machine_id = s.machine_id
-                     AND i.boonz_product_id = s.boonz_product_id AND i.intent = 'reintro_when_stocked');
+DO $seed$
+DECLARE n int;
+BEGIN
+  INSERT INTO public.sku_intents (machine_id, boonz_product_id, intent, min_wh_stock, preferred_lane_size, note)
+  SELECT m.machine_id, bp.product_id, 'reintro_when_stocked', s.min_wh,
+         (SELECT p.shelf_size FROM public.slot_profile_pool p WHERE p.boonz_product_id = bp.product_id
+           ORDER BY p.fill_qty DESC, (p.shelf_size = 'Medium') DESC, (p.shelf_size = 'Large') DESC LIMIT 1),
+         'PRD-143 ' || s.note
+    FROM (VALUES
+      ('AMZ-1057-2403-O1', 'Red Bull - Regular', 24, 'C1: pulled 8 Oct A14 (WH empty, Huel in)'),
+      ('AMZ-1057-2403-O1', 'Red Bull - Diet', 24, 'C1: pulled 8 Oct A14 (WH empty, Huel in)'),
+      ('ADDMIND-1007-0000-W0', 'Krambals - Creamy Cheese', 8, 'C2: off shelf'),
+      ('ADDMIND-1007-0000-W0', 'Krambals - Forest Mushroom & Butter', 8, 'C2: off shelf'),
+      ('ADDMIND-1007-0000-W0', 'Krambals - Green Olives & Sea Salt', 8, 'C2: off shelf'),
+      ('ADDMIND-1007-0000-W0', 'Krambals - Tomato & Mozzarella', 8, 'C2: off shelf'),
+      ('VML-1004-0500-O1', 'Popit - Lemon & Lime', 12, 'C3: off shelf'),
+      ('VML-1004-0500-O1', 'Popit - Orange Squeeze', 12, 'C3: off shelf'),
+      ('VML-1004-0500-O1', 'Popit - Original Cola', 12, 'C3: off shelf'),
+      ('VML-1003-0400-O1', 'Popit - Lemon & Lime', 12, 'C3: off shelf'),
+      ('VML-1003-0400-O1', 'Popit - Orange Squeeze', 12, 'C3: off shelf'),
+      ('VML-1003-0400-O1', 'Popit - Original Cola', 12, 'C3: off shelf'),
+      ('ACTIVATEMCC-2005-0000-W0', 'Pocari Sweat - Regular', 24, 'C4: off shelf'),
+      ('AMZ-1029-3003-O1', 'Smart Gourmet - Classic Hummus and Pretzels', 8, 'C5: off shelf, Classic only'),
+      ('NISSAN-0804-0000-L0', 'Smart Gourmet - Classic Hummus and Pretzels', 8, 'C5: off shelf, Classic only'),
+      ('NOVO-1023-0000-W0', 'Smart Gourmet - Classic Hummus and Pretzels', 8, 'C5: off shelf, Classic only'),
+      ('AMZ-1038-3001-O1', 'Dubai Popcorn - Butter', 12, 'C6: waits for the next popcorn PO'),
+      ('AMZ-1038-3001-O1', 'Dubai Popcorn - Salted', 12, 'C6: waits for the next popcorn PO'),
+      ('ADDMIND-1007-0000-W0', 'Activia Mix & Go - Greek Yogurt Strawberries', 12, 'C7: hero scan, waits for supplier stock'),
+      ('AMZ-1057-2403-O1', 'Activia Mix & Go - Greek Yogurt Strawberries', 12, 'C7: hero scan, waits for supplier stock'),
+      ('AMZ-1068-2401-O1', 'Activia Mix & Go - Greek Yogurt Strawberries', 12, 'C7: hero scan, waits for supplier stock'),
+      ('NOVO-1023-0000-W0', 'Activia Mix & Go - Greek Yogurt Strawberries', 12, 'C7: hero scan, waits for supplier stock'),
+      ('WPP-1002-4300-O1', 'Activia Mix & Go - Greek Yogurt Strawberries', 12, 'C7: hero scan, waits for supplier stock'),
+      ('ALJLT-1015-0200-O1', 'YoPRO - Protein Milk Chocolate', 24, 'C7: hero scan, waits for supplier stock'),
+      ('AMZ-1068-2401-O1', 'YoPRO - Protein Milk Chocolate', 24, 'C7: hero scan, waits for supplier stock'),
+      ('MC-2004-0100-O1', 'YoPRO - Protein Milk Chocolate', 24, 'C7: hero scan, waits for supplier stock'),
+      ('NOVO-1023-0000-W0', 'YoPRO - Protein Milk Chocolate', 24, 'C7: hero scan, waits for supplier stock'),
+      ('ACTIVATEMCC-1037-0000-L0', 'Evian - 330ML', 24, 'C7: hero scan, waits for supplier stock')
+    ) AS s(machine_name, product_name, min_wh, note)
+    JOIN public.machines m ON m.official_name = s.machine_name
+    JOIN public.boonz_products bp ON bp.boonz_product_name = s.product_name
+   WHERE NOT EXISTS (SELECT 1 FROM public.sku_intents i WHERE i.machine_id = m.machine_id
+                       AND i.boonz_product_id = bp.product_id AND i.intent = 'reintro_when_stocked');
+  GET DIAGNOSTICS n = ROW_COUNT;
+  IF n <> 28 THEN RAISE EXCEPTION 'prd144_p2_1: expected 28 PRD-143 seeds, inserted %', n; END IF;
+END
+$seed$;
 
 CREATE OR REPLACE FUNCTION public.get_reintro_proposals(p_plan_date date, p_machine_ids uuid[] DEFAULT NULL::uuid[])
  RETURNS jsonb
