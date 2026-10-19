@@ -72,6 +72,7 @@ export default function PortfolioMap({
   position,
   xMode,
   labelAll,
+  minUnits,
   medianY,
   medianX,
   onOpen,
@@ -80,6 +81,7 @@ export default function PortfolioMap({
   position: Position;
   xMode: XMode;
   labelAll: boolean;
+  minUnits: number;
   medianY: number | null;
   medianX: number | null;
   onOpen: (id: string) => void;
@@ -117,6 +119,7 @@ export default function PortfolioMap({
           position={position}
           xMode={xMode}
           labelAll={labelAll}
+          minUnits={minUnits}
           medianY={medianY}
           medianX={medianX}
           setHover={setHover}
@@ -134,6 +137,7 @@ const Plot = memo(function Plot({
   position,
   xMode,
   labelAll,
+  minUnits,
   medianY,
   medianX,
   setHover,
@@ -144,6 +148,7 @@ const Plot = memo(function Plot({
   position: Position;
   xMode: XMode;
   labelAll: boolean;
+  minUnits: number;
   medianY: number | null;
   medianX: number | null;
   setHover: (h: Hover | null) => void;
@@ -340,6 +345,17 @@ const Plot = memo(function Plot({
               r={6}
               fill={MATURITY_COLOR[d.p.maturity] ?? "#7ba69b"}
               stroke={PLAYBOOK_COLOR[d.p.playbook]}
+              // PRD-142b A9: New product below the min-units slider: dashed outline.
+              strokeDasharray={
+                d.p.maturity === "New" && (d.p.units_8w ?? 0) < minUnits
+                  ? "2 2"
+                  : undefined
+              }
+              data-new-under={
+                d.p.maturity === "New" && (d.p.units_8w ?? 0) < minUnits
+                  ? "1"
+                  : undefined
+              }
               strokeWidth={2}
               style={{ cursor: "pointer" }}
               data-point={d.id}

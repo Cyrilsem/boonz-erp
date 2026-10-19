@@ -122,7 +122,8 @@ export default function ProductsTab() {
         (p) =>
           (chips.length === 0 || chips.includes(p.playbook)) &&
           (!cluster || p.cluster === cluster) &&
-          (p.units_8w ?? 0) >= minUnits,
+          // PRD-142b A9: New products (under 3 months) ignore the slider.
+          ((p.units_8w ?? 0) >= minUnits || p.maturity === "New"),
       ),
     [live, chips, cluster, minUnits],
   );
@@ -363,6 +364,7 @@ export default function ProductsTab() {
           position={position}
           xMode={xMode}
           labelAll={labelAll}
+          minUnits={minUnits}
           medianY={medianY}
           medianX={medianX}
           onOpen={setOpenId}
@@ -564,6 +566,13 @@ export default function ProductsTab() {
                   <td className="whitespace-nowrap px-2 py-1.5 font-medium">
                     {p.name}
                     {p.fuel_risk ? " ⚠" : ""}
+                    {p.maturity === "New" && (p.units_8w ?? 0) < minUnits && (
+                      <span className="ml-1" data-testid="new-under-threshold">
+                        <Pill color="#7ba69b" outline>
+                          new, under threshold
+                        </Pill>
+                      </span>
+                    )}
                   </td>
                   <td className="px-2 py-1.5">
                     <Pill color={PLAYBOOK_COLOR[p.playbook]}>
