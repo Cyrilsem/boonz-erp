@@ -804,6 +804,7 @@ export default function InventoryPage() {
     }
     setControlSaving(true);
     const supabase = createClient();
+    const controlErrors: string[] = [];
 
     const {
       data: { user },
@@ -866,7 +867,7 @@ export default function InventoryPage() {
       }
 
       if (locationChanged) {
-        await adjustWarehouseLineMetadata(supabase, {
+        const r = await adjustWarehouseLineMetadata(supabase, {
           warehouseId: row.warehouse_id,
           line: {
             wh_inventory_id: row.wh_inventory_id,
@@ -878,6 +879,8 @@ export default function InventoryPage() {
           currentStatus: effectiveStatus,
           reason: "inventory_control",
         });
+        // PRD-144 P0-4: the server error used to be dropped here.
+        if (!r.ok) controlErrors.push(`${row.wh_inventory_id.slice(0, 8)}: ${r.error}`);
       }
     }
 
@@ -892,7 +895,11 @@ export default function InventoryPage() {
     setControlMode(false);
     setControlEdits(new Map());
     setControlSaving(false);
-    setControlMessage("Inventory control logged");
+    setControlMessage(
+      controlErrors.length > 0
+        ? `Inventory control logged, but ${controlErrors.length} location save(s) failed: ${controlErrors.join(" · ")}`
+        : "Inventory control logged",
+    );
     await fetchData();
 
     setTimeout(() => setControlMessage(null), 3000);
@@ -1203,6 +1210,8 @@ export default function InventoryPage() {
       ...prev,
       [id]: { ...prev[id], location: ok ? "saved" : "error" },
     }));
+    // PRD-144 P0-4: say why, not just "error".
+    if (!ok) setControlMessage(`Location save failed: ${result.error}`);
     if (ok) {
       setRows((prev) =>
         prev.map((r) =>
