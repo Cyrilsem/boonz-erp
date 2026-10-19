@@ -2,7 +2,6 @@
 
 import { useState, useEffect, useCallback, useMemo, useRef } from "react";
 import { createClient } from "@/lib/supabase/client";
-import ProductPerformanceTab from "@/components/performance/ProductPerformanceTab";
 import {
   BarChart,
   Bar,
@@ -29,7 +28,8 @@ const TABS = [
   "Overview",
   "Sites & Machines",
   "Products",
-  "Product Performance",
+  // PRD-142b 7.1: "Product Performance" (PRD-087 / PRD-104) retired; superseded
+  // by /app/strategy?tab=products. ?tab=product-performance redirects there.
   "Payments",
   "Transactions",
   "Customers",
@@ -576,6 +576,11 @@ function ProgressRow({
 // ── main component ──
 export default function PerformancePage() {
   const [activeTab, setActiveTab] = useState<Tab>("Overview");
+  useEffect(() => {
+    const t = new URLSearchParams(window.location.search).get("tab");
+    if (t === "product-performance" || t === "Product Performance")
+      window.location.replace("/app/strategy?tab=products");
+  }, []);
   const [dateFrom, setDateFrom] = useState(daysAgo(30));
   const [dateTo, setDateTo] = useState(dubaiDateOnly()); // Dubai-local today
   const [group, setGroup] = useState<GroupFilter>("All");
@@ -3034,7 +3039,6 @@ export default function PerformancePage() {
         )}
 
         {/* ── PRODUCT PERFORMANCE (PRD-087 P4 — live velocity catalogue) ── */}
-        {activeTab === "Product Performance" && <ProductPerformanceTab />}
 
         {/* ── PAYMENTS ── */}
         {activeTab === "Payments" && (

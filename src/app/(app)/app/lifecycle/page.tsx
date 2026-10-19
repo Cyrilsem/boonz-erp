@@ -3,8 +3,6 @@
 import { useEffect, useState, useCallback, useRef, useMemo } from "react";
 import { createClient } from "@/lib/supabase/client";
 import { jitter } from "@/lib/lifecycle/jitter";
-import HeatmapTab from "./HeatmapTab";
-import DivestTab from "./DivestTab";
 import {
   BarChart,
   Bar,
@@ -176,7 +174,8 @@ interface ProductOption {
   pod_product_name: string;
 }
 
-type Tab = "overview" | "matrix" | "heatmap" | "divest";
+// PRD-142b 7.1: Heatmap and Divest Plan retired; superseded by /app/strategy?tab=products.
+type Tab = "overview" | "matrix";
 type ToggleA = "product" | "cluster";
 type ToggleB = "overall" | "machine";
 
@@ -361,8 +360,11 @@ export default function LifecyclePage() {
     // Accept both "matrix" (new) and "scatter" (old migration)
     if (t === "matrix" || t === "scatter") setTab("matrix");
     else if (t === "overview") setTab("overview");
-    else if (t === "heatmap") setTab("heatmap");
-    else if (t === "divest") setTab("divest");
+    else if (t === "heatmap" || t === "divest") {
+      // PRD-142b 7.1: retired tabs redirect to the Strategy Products tab.
+      window.location.replace("/app/strategy?tab=products");
+      return;
+    }
 
     const ta = p.get("toggleA");
     if (ta === "cluster") setToggleA("cluster");
@@ -908,7 +910,7 @@ export default function LifecyclePage() {
       </div>
 
       <div className="flex gap-1 border-b border-neutral-200 px-6 dark:border-neutral-800">
-        {(["overview", "matrix", "heatmap", "divest"] as Tab[]).map((t) => (
+        {(["overview", "matrix"] as Tab[]).map((t) => (
           <button
             key={t}
             onClick={() => setTab(t)}
@@ -918,13 +920,7 @@ export default function LifecyclePage() {
                 : "border-transparent text-neutral-500 hover:text-neutral-700 dark:hover:text-neutral-300"
             }`}
           >
-            {t === "overview"
-              ? "Overview"
-              : t === "matrix"
-                ? "Product Deep Dive"
-                : t === "heatmap"
-                  ? "Heatmap"
-                  : "Divest Plan"}
+            {t === "overview" ? "Overview" : "Product Deep Dive"}
           </button>
         ))}
       </div>
@@ -979,8 +975,6 @@ export default function LifecyclePage() {
             onTrendRangeChange={setTrendRange}
           />
         )}
-        {tab === "heatmap" && <HeatmapTab />}
-        {tab === "divest" && <DivestTab />}
       </div>
     </div>
   );
