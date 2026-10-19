@@ -13,6 +13,8 @@ import { isInternalMoveLeg, type ExpiryWarning } from "@/lib/dispatch-types";
 import { DispatchEditDialog } from "@/components/field/DispatchEditDialog";
 import { AddDispatchRowDialog } from "@/components/field/AddDispatchRowDialog";
 import ExpirySanityChecks from "@/components/field/ExpirySanityChecks";
+import ExpiryBreakdownDialog from "@/components/dispatch/ExpiryBreakdownDialog";
+import SplitPodLotDialog from "@/components/field/SplitPodLotDialog";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -45,6 +47,8 @@ interface DispatchLine {
   /** pod_product (variant family) — used to scope the "+ Add return" picker to siblings */
   pod_product_id: string | null;
   shelf_id: string | null;
+  /** PRD-144 P1-3: the pod lot a Remove leg is bound to (for "Split lot"). */
+  pod_lot_id: string | null;
   shelf_code: string | null;
   pod_product_name: string | null;
   boonz_product_name: string | null;
@@ -178,6 +182,43 @@ export default function DispatchingDetailPage() {
   const [removeBreakdown, setRemoveBreakdown] = useState<
     Record<string, { qty: number; expiry: string }[]>
   >({});
+  // PRD-144 P1-3: per-card expiry tools.
+  const [soldFor, setSoldFor] = useState<string | null>(null);
+  const [soldQty, setSoldQty] = useState("");
+  const [soldBusy, setSoldBusy] = useState(false);
+  const [soldMsg, setSoldMsg] = useState<Record<string, string>>({});
+  const [splitLot, setSplitLot] = useState<{
+    podId: string;
+    name: string;
+  } | null>(null);
+  const [breakdownLine, setBreakdownLine] = useState<DispatchLine | null>(null);
+
+  async function submitSoldSincePlanning(line: DispatchLine) {
+    const n = parseInt(soldQty) || 0;
+    if (n <= 0) return;
+    setSoldBusy(true);
+    const { data, error } = await createClient().rpc(
+      "record_sold_since_planning",
+      { p_dispatch_id: line.dispatch_id, p_sold_qty: n, p_reason: null },
+    );
+    setSoldBusy(false);
+    setSoldMsg((prev) => ({
+      ...prev,
+      [line.dispatch_id]: error
+        ? `Not saved: ${error.message}`
+        : `Saved: ${n} sold since planning, Remove is now ${(data as { remove_qty_after?: number } | null)?.remove_qty_after ?? line.quantity - n}`,
+    }));
+    if (!error) {
+      setSoldFor(null);
+      setSoldQty("");
+      setRemoveBreakdown((prev) => {
+        const next = { ...prev };
+        delete next[line.dispatch_id];
+        return next;
+      });
+      await fetchData();
+    }
+  }
 
   function getRemoveBreakdown(
     line: DispatchLine,
@@ -321,6 +362,7 @@ export default function DispatchingDetailPage() {
         comment,
         is_internal_move,
         internal_move_cleared_at,
+        pod_lot_id,
         shelf_configurations(shelf_code),
         pod_products(pod_product_name)
       `,
@@ -386,6 +428,9 @@ export default function DispatchingDetailPage() {
             ((line as Record<string, unknown>).pod_product_id as
               string | null) ?? null,
           shelf_id: (line.shelf_id as string | null) ?? null,
+          pod_lot_id:
+            ((line as Record<string, unknown>).pod_lot_id as string | null) ??
+            null,
           shelf_code: shelf?.shelf_code ?? null,
           pod_product_name: product?.pod_product_name ?? null,
           boonz_product_name: null,
@@ -1679,9 +1724,103 @@ export default function DispatchingDetailPage() {
                               Total: {total} / {line.filled_qty}
                               {mismatched && " — must match Filled"}
                             </div>
+                            {/* PRD-144 P1-3: units sold after the plan was written, and two dates under one lot. */}
+                            {!isReadOnly && !line.driver_confirmed && (
+                              <div className="flex flex-wrap items-center gap-2 pt-1">
+                                {soldFor === line.dispatch_id ? (
+                                  <>
+                                    <input
+                                      type="number"
+                                      min={1}
+                                      max={line.quantity}
+                                      value={soldQty}
+                                      onChange={(e) =>
+                                        setSoldQty(e.target.value)
+                                      }
+                                      placeholder="Sold"
+                                      className="w-16 rounded border border-neutral-300 px-2 py-1 text-center text-sm dark:border-neutral-600 dark:bg-neutral-900"
+                                    />
+                                    <button
+                                      type="button"
+                                      disabled={
+                                        soldBusy ||
+                                        !(
+                                          (parseInt(soldQty) || 0) > 0 &&
+                                          (parseInt(soldQty) || 0) <=
+                                            line.quantity
+                                        )
+                                      }
+                                      onClick={() =>
+                                        submitSoldSincePlanning(line)
+                                      }
+                                      className="rounded bg-[#24544a] px-2 py-1 text-xs font-semibold text-white disabled:opacity-40"
+                                    >
+                                      {soldBusy ? "Saving…" : "Reduce Remove"}
+                                    </button>
+                                    <button
+                                      type="button"
+                                      onClick={() => setSoldFor(null)}
+                                      className="text-xs text-neutral-500"
+                                    >
+                                      Back
+                                    </button>
+                                  </>
+                                ) : (
+                                  <button
+                                    type="button"
+                                    onClick={() => {
+                                      setSoldFor(line.dispatch_id);
+                                      setSoldQty("");
+                                    }}
+                                    className="text-xs font-medium text-sky-600 hover:underline dark:text-sky-400"
+                                  >
+                                    Sold since planning
+                                  </button>
+                                )}
+                                {line.pod_lot_id &&
+                                  soldFor !== line.dispatch_id && (
+                                    <button
+                                      type="button"
+                                      onClick={() =>
+                                        setSplitLot({
+                                          podId: line.pod_lot_id as string,
+                                          name:
+                                            line.boonz_product_name ??
+                                            line.pod_product_name ??
+                                            "",
+                                        })
+                                      }
+                                      className="text-xs font-medium text-sky-600 hover:underline dark:text-sky-400"
+                                    >
+                                      Split lot
+                                    </button>
+                                  )}
+                              </div>
+                            )}
+                            {soldMsg[line.dispatch_id] && (
+                              <p
+                                role="alert"
+                                className={`text-xs ${soldMsg[line.dispatch_id].startsWith("Saved") ? "text-emerald-700" : "text-rose-600"}`}
+                              >
+                                {soldMsg[line.dispatch_id]}
+                              </p>
+                            )}
                           </div>
                         );
                       })()}
+
+                    {/* PRD-144 P1-3: per-expiry quantities on a Refill / Add New card (total stays locked). */}
+                    {line.dispatch_action !== "Remove" &&
+                      !line.dispatched &&
+                      !isReadOnly && (
+                        <button
+                          type="button"
+                          onClick={() => setBreakdownLine(line)}
+                          className="mb-2 text-xs font-medium text-sky-600 hover:underline dark:text-sky-400"
+                        >
+                          Expiry split
+                        </button>
+                      )}
 
                     {/* Action badge — show planned action type so driver knows what's expected */}
                     <div className="mb-2 flex items-center gap-2 text-xs">
@@ -2053,6 +2192,39 @@ export default function DispatchingDetailPage() {
           </div>
         )}
       </div>
+
+      {/* PRD-144 P1-3 */}
+      {breakdownLine && (
+        <ExpiryBreakdownDialog
+          dispatchId={breakdownLine.dispatch_id}
+          lineTotal={breakdownLine.quantity}
+          productName={
+            breakdownLine.boonz_product_name ??
+            breakdownLine.pod_product_name ??
+            ""
+          }
+          initial={
+            breakdownLine.expiry_date
+              ? [
+                  {
+                    qty: breakdownLine.quantity,
+                    expiry: breakdownLine.expiry_date,
+                  },
+                ]
+              : null
+          }
+          onClose={() => setBreakdownLine(null)}
+          onSaved={() => fetchData()}
+        />
+      )}
+      {splitLot && (
+        <SplitPodLotDialog
+          podInventoryId={splitLot.podId}
+          productName={splitLot.name}
+          onClose={() => setSplitLot(null)}
+          onSaved={() => fetchData()}
+        />
+      )}
 
       {/* Phase F dispatch-editing dialogs */}
       {editingDispatch && (
