@@ -100,7 +100,7 @@ assert(
 );
 assert(
   "A3: the drift counter feeds the banner, not a per-line list",
-  /driftLines \+= 1;/.test(page) && /setPlanDrift\(driftLines\)/.test(page),
+  /(ctx\.)?driftLines \+= 1;/.test(page) && /setPlanDrift\((ctx\.)?driftLines\)/.test(page),
   "driftLines counter missing",
 );
 
