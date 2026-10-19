@@ -8,21 +8,8 @@
 
 import { useEffect, useMemo, useRef, useState } from "react";
 import type { SupabaseClient } from "@supabase/supabase-js";
-import {
-  CartesianGrid,
-  Cell,
-  LabelList,
-  Line,
-  LineChart,
-  ReferenceLine,
-  ResponsiveContainer,
-  Scatter,
-  ScatterChart,
-  Tooltip,
-  XAxis,
-  YAxis,
-} from "recharts";
 import { createClient } from "@/lib/supabase/client";
+import PortfolioMap, { xValue } from "./PortfolioMap";
 import ProductDrawer from "./ProductDrawer";
 import {
   aed,
@@ -146,31 +133,68 @@ export default function ProductsTab() {
   const med = data?.medians ?? {};
   const kpis = data?.kpis ?? {};
 
-  function xOf(p: ProductRow, prime: boolean) {
-    if (xMode === "facing")
-      return Math.max(
-        0.1,
-        ((prime ? p.prime_velocity : p.velocity) ?? 0) *
-          (p.price_per_unit ?? 0),
-      );
-    return ((prime ? p.prime_coverage : p.coverage) ?? 0) * 100;
+  // PRD-142b A2: median lines follow the scope. Velocity and coverage
+  // medians come from get_strategy_products for the selected population;
+  // the AED per facing median is taken here over the same set (live
+  // products with >= 8 units in the 8 weeks).
+  const medianY =
+    med.median_velocity !== undefined && med.median_velocity !== null
+      ? Number(med.median_velocity)
+      : null;
+  const medianX = useMemo(() => {
+    if (xMode === "coverage")
+      return med.median_coverage !== undefined && med.median_coverage !== null
+        ? Number(med.median_coverage) * 100
+        : null;
+    const xs = live
+      .filter((p) => (p.units_8w ?? 0) >= 8 && p.velocity !== null)
+      .map((p) => xValue(p, false, "facing"))
+      .sort((a, b) => a - b);
+    if (xs.length === 0) return null;
+    const mid = Math.floor(xs.length / 2);
+    return xs.length % 2 ? xs[mid] : (xs[mid - 1] + xs[mid]) / 2;
+  }, [xMode, med.median_coverage, live]);
+
+  // PRD-142b A4: product review panel, same pattern as Machines.
+  const review = useMemo(
+    () =>
+      products.filter(
+        (p) => p.posture_proposed && p.posture_proposed !== p.posture,
+      ),
+    [products],
+  );
+  const [showAllReview, setShowAllReview] = useState(false);
+  const [busy, setBusy] = useState<string | null>(null);
+  const [rejecting, setRejecting] = useState<string | null>(null);
+  const [rejectReason, setRejectReason] = useState("");
+
+  async function accept(p: ProductRow) {
+    if (!sb.current || !p.posture_proposed) return;
+    setBusy(p.pod_product_id);
+    const { error: e } = await sb.current.rpc("set_product_strategy", {
+      p_pod_product_id: p.pod_product_id,
+      p_posture: p.posture_proposed,
+      p_target_archetypes: p.target_archetypes,
+      p_notes: null,
+    });
+    setBusy(null);
+    if (e) setError(e.message);
+    else setReload((n) => n + 1);
   }
-  function yOf(p: ProductRow, prime: boolean) {
-    return Math.max(0.1, (prime ? p.prime_velocity : p.velocity) ?? 0.1);
+
+  async function reject(p: ProductRow) {
+    if (!sb.current || !rejectReason.trim()) return;
+    setBusy(p.pod_product_id);
+    const { error: e } = await sb.current.rpc(
+      "reject_product_strategy_proposal",
+      { p_pod_product_id: p.pod_product_id, p_reason: rejectReason.trim() },
+    );
+    setBusy(null);
+    setRejecting(null);
+    setRejectReason("");
+    if (e) setError(e.message);
+    else setReload((n) => n + 1);
   }
-  const points = shown
-    .filter((p) =>
-      position === "prime" ? p.prime_velocity !== null : p.velocity !== null,
-    )
-    .map((p) => ({
-      id: p.pod_product_id,
-      name: p.name,
-      x: xOf(p, position === "prime"),
-      y: yOf(p, position === "prime"),
-      maturity: p.maturity,
-      playbook: p.playbook,
-      p,
-    }));
 
   function toggleChip(c: string) {
     setChips(chips.includes(c) ? chips.filter((x) => x !== c) : [...chips, c]);
@@ -334,145 +358,15 @@ export default function ProductsTab() {
       <Card
         title={`Velocity (units per selling machine-week, log scale) by ${xMode === "coverage" ? "coverage" : "AED per facing per week"}`}
       >
-        <div style={{ height: 460 }}>
-          <ResponsiveContainer>
-            <ScatterChart margin={{ top: 16, right: 24, bottom: 28, left: 8 }}>
-              <CartesianGrid stroke="var(--line)" />
-              <XAxis
-                type="number"
-                dataKey="x"
-                fontSize={11}
-                name={xMode === "coverage" ? "Coverage %" : "AED per facing"}
-                label={{
-                  value:
-                    xMode === "coverage"
-                      ? "Coverage (% of selling machines)"
-                      : "AED per facing per week",
-                  position: "insideBottom",
-                  offset: -14,
-                  fontSize: 11,
-                }}
-              />
-              <YAxis
-                type="number"
-                dataKey="y"
-                scale="log"
-                domain={[0.5, 40]}
-                allowDataOverflow
-                fontSize={11}
-                label={{
-                  value: "Velocity",
-                  angle: -90,
-                  position: "insideLeft",
-                  fontSize: 11,
-                }}
-              />
-              {xMode === "coverage" && med.median_coverage !== undefined && (
-                <ReferenceLine
-                  x={Number(med.median_coverage) * 100}
-                  stroke="var(--muted-2)"
-                  strokeDasharray="4 4"
-                  label={{ value: "median", fontSize: 10, position: "top" }}
-                />
-              )}
-              {med.median_velocity !== undefined && (
-                <ReferenceLine
-                  y={Number(med.median_velocity)}
-                  stroke="var(--muted-2)"
-                  strokeDasharray="4 4"
-                  label={{ value: "median", fontSize: 10, position: "right" }}
-                />
-              )}
-              <Tooltip
-                content={({ payload }) => {
-                  const pt = payload?.[0]?.payload as
-                    (typeof points)[number] | undefined;
-                  if (!pt?.p) return null;
-                  const p = pt.p;
-                  return (
-                    <div
-                      className="rounded-lg px-3 py-2 text-xs shadow"
-                      style={{
-                        background: "var(--surface)",
-                        border: "1px solid var(--line)",
-                        width: 240,
-                      }}
-                    >
-                      <div className="font-semibold">{p.name}</div>
-                      <div>
-                        {PLAYBOOK_LABEL[p.playbook]} · {p.maturity} ·{" "}
-                        {p.cluster_label}
-                      </div>
-                      <div>
-                        Now {num(p.velocity, 2)}/wk @ {pct(p.coverage)} · prime{" "}
-                        {num(p.prime_velocity, 2)} @ {pct(p.prime_coverage)}
-                      </div>
-                      <div>
-                        WH {p.wh_status ?? "–"} · {aed(p.net_rev_8w)} in 8 wk
-                      </div>
-                      <div style={{ height: 50 }}>
-                        <ResponsiveContainer>
-                          <LineChart
-                            data={(p.series_units ?? []).map((u, i) => ({
-                              i,
-                              u,
-                            }))}
-                          >
-                            <Line
-                              dataKey="u"
-                              dot={false}
-                              stroke="var(--brand)"
-                              strokeWidth={1.5}
-                              isAnimationActive={false}
-                            />
-                          </LineChart>
-                        </ResponsiveContainer>
-                      </div>
-                    </div>
-                  );
-                }}
-              />
-              {position === "trails" &&
-                shown
-                  .filter(
-                    (p) => p.prime_velocity !== null && p.velocity !== null,
-                  )
-                  .map((p) => (
-                    <Scatter
-                      key={`t-${p.pod_product_id}`}
-                      data={[
-                        { x: xOf(p, true), y: yOf(p, true) },
-                        { x: xOf(p, false), y: yOf(p, false) },
-                      ]}
-                      line={{
-                        stroke: PLAYBOOK_COLOR[p.playbook],
-                        strokeOpacity: 0.35,
-                      }}
-                      shape={() => <g />}
-                      isAnimationActive={false}
-                    />
-                  ))}
-              <Scatter
-                data={points}
-                onClick={(d) => setOpenId((d as unknown as { id: string }).id)}
-                isAnimationActive={false}
-              >
-                {points.map((d) => (
-                  <Cell
-                    key={d.id}
-                    fill={MATURITY_COLOR[d.maturity] ?? "#7ba69b"}
-                    stroke={PLAYBOOK_COLOR[d.playbook]}
-                    strokeWidth={2}
-                    cursor="pointer"
-                  />
-                ))}
-                {labelAll && (
-                  <LabelList dataKey="name" position="top" fontSize={9} />
-                )}
-              </Scatter>
-            </ScatterChart>
-          </ResponsiveContainer>
-        </div>
+        <PortfolioMap
+          products={shown}
+          position={position}
+          xMode={xMode}
+          labelAll={labelAll}
+          medianY={medianY}
+          medianX={medianX}
+          onOpen={setOpenId}
+        />
         <div
           className="mt-1 flex flex-wrap gap-3 text-[11px]"
           style={{ color: "var(--muted)" }}
@@ -490,6 +384,119 @@ export default function ProductsTab() {
             Outline = playbook. Trails run from prime to now. Click a point for
             the product drawer.
           </span>
+        </div>
+      </Card>
+
+      <Card
+        title={`Review product proposals (${review.length})`}
+        right={
+          <span className="text-xs" style={{ color: "var(--muted)" }}>
+            Accept confirms the proposed posture; edit in the drawer; reject
+            suppresses it for 30 days.
+          </span>
+        }
+      >
+        <div data-testid="strategy-product-review-panel" className="space-y-2">
+          {review.length === 0 && (
+            <div className="text-sm" style={{ color: "var(--muted)" }}>
+              No open proposals.
+            </div>
+          )}
+          {(showAllReview ? review : review.slice(0, 10)).map((p) => (
+            <div
+              key={p.pod_product_id}
+              className="rounded-lg p-3"
+              style={{ border: "1px solid var(--line)" }}
+            >
+              <div className="flex flex-wrap items-center justify-between gap-2">
+                <div className="flex flex-wrap items-center gap-2">
+                  <button
+                    className="font-semibold underline-offset-2 hover:underline"
+                    onClick={() => setOpenId(p.pod_product_id)}
+                  >
+                    {p.name}
+                  </button>
+                  <Pill color={PLAYBOOK_COLOR[p.playbook]} outline>
+                    {PLAYBOOK_LABEL[p.playbook]}
+                  </Pill>
+                  <Pill color="#24544a" outline={!p.posture}>
+                    now: {p.posture ?? "not set"}
+                  </Pill>
+                  <span>→</span>
+                  <Pill color="#24544a">{p.posture_proposed}</Pill>
+                </div>
+                <div className="flex gap-2">
+                  <button
+                    disabled={busy === p.pod_product_id}
+                    onClick={() => accept(p)}
+                    className="rounded-lg px-3 py-1 text-xs font-medium text-white"
+                    style={{ background: "var(--brand)" }}
+                  >
+                    Accept
+                  </button>
+                  <button
+                    onClick={() => setOpenId(p.pod_product_id)}
+                    className="rounded-lg px-3 py-1 text-xs"
+                    style={{ border: "1px solid var(--line)" }}
+                  >
+                    Accept with edits
+                  </button>
+                  <button
+                    onClick={() =>
+                      setRejecting(
+                        rejecting === p.pod_product_id
+                          ? null
+                          : p.pod_product_id,
+                      )
+                    }
+                    className="rounded-lg px-3 py-1 text-xs"
+                    style={{
+                      border: "1px solid var(--line)",
+                      color: "var(--danger)",
+                    }}
+                  >
+                    Reject
+                  </button>
+                </div>
+              </div>
+              <div className="mt-1 text-xs" style={{ color: "var(--muted)" }}>
+                Now {num(p.velocity, 2)}/wk @ {pct(p.coverage)}, prime{" "}
+                {num(p.prime_velocity, 2)}/wk, retention {pct(p.retention)}, WH{" "}
+                {p.wh_status ?? "–"}
+                {p.open_po_units ? `, ${p.open_po_units} on order` : ""}
+                {p.target_archetypes?.length
+                  ? `. Grow on: ${p.target_archetypes.join(", ")}`
+                  : ""}
+              </div>
+              {rejecting === p.pod_product_id && (
+                <div className="mt-2 flex gap-2">
+                  <input
+                    value={rejectReason}
+                    onChange={(e) => setRejectReason(e.target.value)}
+                    placeholder="Reason (required)"
+                    className="flex-1 rounded-lg px-2 py-1 text-sm"
+                    style={{ border: "1px solid var(--line)" }}
+                  />
+                  <button
+                    disabled={!rejectReason.trim() || busy === p.pod_product_id}
+                    onClick={() => reject(p)}
+                    className="rounded-lg px-3 py-1 text-xs text-white"
+                    style={{ background: "var(--danger)" }}
+                  >
+                    Confirm reject
+                  </button>
+                </div>
+              )}
+            </div>
+          ))}
+          {review.length > 10 && (
+            <button
+              onClick={() => setShowAllReview(!showAllReview)}
+              className="text-xs underline"
+            >
+              {showAllReview ? "Show first 10" : `Show all ${review.length}`}
+            </button>
+          )}
         </div>
       </Card>
 
