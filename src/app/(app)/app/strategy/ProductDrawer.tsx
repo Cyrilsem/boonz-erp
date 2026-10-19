@@ -292,6 +292,32 @@ export default function ProductDrawer({
             </Card>
           </div>
 
+          {/* PRD-142b A6 (spec 6.3): display only, no action. */}
+          <Card title="Cannibalisation (same cluster, same machine)">
+            <div data-testid="strategy-cannibalisation" className="text-xs">
+              {(d.cannibalisation ?? []).length === 0 ? (
+                <div style={{ color: "var(--muted)" }}>
+                  No sign in the last 60 weeks: when a newcomer in this cluster
+                  was added next to this product (or this product was added),
+                  the cluster grew with it.
+                </div>
+              ) : (
+                <ul className="space-y-1">
+                  {(d.cannibalisation ?? []).map((c: any, i: number) => (
+                    <li key={`${c.machine}-${c.week_added}-${i}`}>
+                      <b>{c.machine}</b>, week of {c.week_added}: {c.newcomer}{" "}
+                      added; {c.incumbent} {num(c.incumbent_before, 0)} to{" "}
+                      {num(c.incumbent_after, 0)} units in 4 weeks while the
+                      cluster went {num(c.cluster_before, 0)} to{" "}
+                      {num(c.cluster_after, 0)} ({c.newcomer} sold{" "}
+                      {num(c.newcomer_after, 0)}).
+                    </li>
+                  ))}
+                </ul>
+              )}
+            </div>
+          </Card>
+
           <Card title="Product posture">
             <div className="space-y-3 text-sm">
               <div className="flex flex-wrap gap-2">
