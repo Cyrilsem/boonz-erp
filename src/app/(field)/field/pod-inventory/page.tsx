@@ -3,6 +3,7 @@
 import { useEffect, useState, useMemo, useCallback, Suspense } from "react";
 import { useSearchParams } from "next/navigation";
 import { createClient } from "@/lib/supabase/client";
+import SplitPodLotDialog from "@/components/field/SplitPodLotDialog";
 import { FieldHeader } from "../../components/field-header";
 import { getExpiryStyle } from "@/app/(field)/utils/expiry";
 
@@ -302,6 +303,8 @@ function PodInventoryPageInner() {
 
   // Edit modal
   const [selectedRow, setSelectedRow] = useState<PodRow | null>(null);
+  // PRD-144 P1-3: split the selected lot into two expiry dates.
+  const [splitRow, setSplitRow] = useState<PodRow | null>(null);
   const [editType, setEditType] = useState<EditType | null>(null);
   const [editQty, setEditQty] = useState<string>("");
   const [editNotes, setEditNotes] = useState("");
@@ -954,6 +957,18 @@ function PodInventoryPageInner() {
         )}
       </div>
 
+      {splitRow && (
+        <SplitPodLotDialog
+          podInventoryId={splitRow.pod_inventory_id}
+          productName={splitRow.boonz_products?.boonz_product_name ?? ""}
+          onClose={() => setSplitRow(null)}
+          onSaved={() => {
+            closeModal();
+            fetchData();
+          }}
+        />
+      )}
+
       {/* ── Edit modal (bottom sheet) ── */}
       {selectedRow && (
         <div className="fixed inset-0 z-50 flex flex-col justify-end">
@@ -974,6 +989,15 @@ function PodInventoryPageInner() {
                 {selectedRow.current_stock} units · expires{" "}
                 {formatDate(selectedRow.expiration_date)}
               </p>
+              {selectedRow.current_stock >= 2 && (
+                <button
+                  type="button"
+                  onClick={() => setSplitRow(selectedRow)}
+                  className="mt-2 rounded-lg border border-sky-300 px-3 py-1 text-xs font-semibold text-sky-700 dark:border-sky-700 dark:text-sky-300"
+                >
+                  Split lot (two expiry dates)
+                </button>
+              )}
             </div>
 
             <p className="mb-3 text-sm font-semibold text-neutral-700 dark:text-neutral-300">
