@@ -39,7 +39,7 @@ export interface AdjustWarehouseLine {
   boonz_product_id: string;
   /** @deprecated Phase G P1: pass via attemptCorrection (attempt-rpcs.ts). */
   new_warehouse_stock?: number;
-  /** Defaults to 0 in the RPC if omitted. */
+  /** Defaults to 0 in the RPC if omitted (PRD-144 P0-4: never omit it). */
   new_consumer_stock?: number;
   /** Pass `null` to explicitly clear, omit the key to leave it alone. */
   expiration_date?: string | null;
@@ -71,8 +71,25 @@ export interface AdjustWarehouseMetadataArgs {
   currentWarehouseStock: number;
   /** Current status (we pass it through unchanged). */
   currentStatus: string;
+  /**
+   * PRD-144 P0-4: current consumer_stock. When omitted the helper reads the
+   * row's live value just before the call. Never sent as "absent": the RPC
+   * would treat that as 0 and wipe the packed reservation.
+   */
+  currentConsumerStock?: number;
   reason: string;
+  /** YYYY-MM-DD; defaults to today in Dubai (never null: snapshot_date is NOT NULL). */
   snapshotDate?: string;
+}
+
+/** Today in Dubai as YYYY-MM-DD (same rule as getDubaiDate in @/lib/utils/date). */
+function dubaiToday(): string {
+  return new Intl.DateTimeFormat("en-CA", {
+    timeZone: "Asia/Dubai",
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+  }).format(new Date());
 }
 
 export interface AdjustWarehouseResult {
@@ -140,9 +157,35 @@ export async function adjustWarehouseLineMetadata(
     return { ok: false, error: "line.boonz_product_id is required" };
   }
 
+  // PRD-144 P0-4: adjust_warehouse_stock sets consumer_stock to
+  // COALESCE(new_consumer_stock, 0), so the current value always travels.
+  let consumerStock = args.currentConsumerStock;
+  if (consumerStock === undefined) {
+    if (!args.line.wh_inventory_id) {
+      return {
+        ok: false,
+        error: "wh_inventory_id or currentConsumerStock is required",
+      };
+    }
+    const { data: row, error: readErr } = await supabase
+      .from("warehouse_inventory")
+      .select("consumer_stock")
+      .eq("wh_inventory_id", args.line.wh_inventory_id)
+      .maybeSingle();
+    if (readErr || !row) {
+      return {
+        ok: false,
+        error: `could not read current stock: ${readErr?.message ?? "row not found"}`,
+        detail: readErr,
+      };
+    }
+    consumerStock = Number(row.consumer_stock ?? 0);
+  }
+
   const cleanedLine: Record<string, unknown> = {
     boonz_product_id: args.line.boonz_product_id,
     new_warehouse_stock: args.currentWarehouseStock,
+    new_consumer_stock: consumerStock,
     status: args.currentStatus,
   };
   if (args.line.wh_inventory_id !== undefined) {
@@ -161,7 +204,9 @@ export async function adjustWarehouseLineMetadata(
   const { data, error } = await supabase.rpc("adjust_warehouse_stock", {
     p_warehouse_id: args.warehouseId,
     p_lines: [cleanedLine],
-    p_snapshot_date: args.snapshotDate ?? null,
+    // PRD-144 P0-4: null here overrode the RPC default and failed with
+    // "null value in column snapshot_date violates not-null constraint".
+    p_snapshot_date: args.snapshotDate ?? dubaiToday(),
     p_reason: args.reason,
   });
 

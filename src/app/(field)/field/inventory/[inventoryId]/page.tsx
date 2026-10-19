@@ -275,7 +275,7 @@ export default function InventoryDetailPage() {
         reason,
       });
       if (!r.ok) {
-        setSaveError(`Location save failed — ${r.error ?? "try again"}`);
+        setSaveError(`Location save failed: ${r.error ?? "try again"}`);
         setSaving(false);
         return;
       }
@@ -326,6 +326,9 @@ export default function InventoryDetailPage() {
       setItem({ ...item, expiration_date: expiryDate || null });
       setExpirySaved(true);
       setTimeout(() => setExpirySaved(false), 2000);
+    } else {
+      // PRD-144 P0-4: the server error used to be dropped here.
+      setSaveError(`Expiry save failed: ${result.error ?? "unknown error"}`);
     }
     setSavingExpiry(false);
   }
