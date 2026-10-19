@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState, useCallback } from "react";
+import { useEffect, useState, useCallback, Suspense } from "react";
 import Link from "next/link";
 import { useSearchParams } from "next/navigation";
 import { createClient } from "@/lib/supabase/client";
@@ -63,7 +63,26 @@ function DispatchTabs({
   );
 }
 
+// useSearchParams() needs a Suspense boundary or the static build bails out
+// (same wrapper as the pod inventory page).
 export default function DispatchingPage() {
+  return (
+    <Suspense
+      fallback={
+        <>
+          <FieldHeader title="Dispatching" />
+          <div className="flex items-center justify-center p-8">
+            <p className="text-neutral-500">Loading dispatching…</p>
+          </div>
+        </>
+      }
+    >
+      <DispatchingPageInner />
+    </Suspense>
+  );
+}
+
+function DispatchingPageInner() {
   const searchParams = useSearchParams();
   const [tab, setTab] = useState<DispatchTab>(
     searchParams?.get("tab") === "pending" ? "pending" : "today",
