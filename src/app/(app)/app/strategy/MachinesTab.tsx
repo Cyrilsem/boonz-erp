@@ -82,6 +82,8 @@ export interface MachineRow {
   rejected_posture: string | null;
   rejected_until: string | null;
   params: Record<string, unknown> | null;
+  // PRD-142b A7: postures only apply to machines in refill.
+  in_refill: boolean;
 }
 
 type Win = "30d" | "90d" | "12m" | "era";
@@ -164,7 +166,10 @@ export default function MachinesTab() {
     );
     const byPosture: Record<string, number> = {};
     for (const r of rows) {
-      const p = r.posture ?? `${r.posture_proposed ?? "none"} (proposed)`;
+      const p =
+        r.in_refill === false
+          ? "not in refill"
+          : (r.posture ?? `${r.posture_proposed ?? "none"} (proposed)`);
       byPosture[p] = (byPosture[p] ?? 0) + 1;
     }
     return {
@@ -189,13 +194,18 @@ export default function MachinesTab() {
   const review = useMemo(
     () =>
       rows.filter(
-        (r) => r.posture_proposed && r.posture_proposed !== r.posture,
+        (r) =>
+          r.in_refill !== false &&
+          r.posture_proposed &&
+          r.posture_proposed !== r.posture,
       ),
     [rows],
   );
   const pastReview = useMemo(() => {
     const today = new Date().toISOString().slice(0, 10);
-    return rows.filter((r) => r.review_by && r.review_by < today);
+    return rows.filter(
+      (r) => r.in_refill !== false && r.review_by && r.review_by < today,
+    );
   }, [rows]);
   const archChanged = useMemo(
     () => rows.filter((r) => r.archetype_changed_at),
@@ -700,6 +710,15 @@ export default function MachinesTab() {
                       {r.archetype_method === "manual" ? " (manual)" : ""}
                     </td>
                     <td className="whitespace-nowrap px-2 py-1.5">
+                      {r.in_refill === false && (
+                        <Pill
+                          color="#a3a09a"
+                          outline
+                          title="include_in_refill is off: the posture is kept but the engine ignores it and no new proposals are made"
+                        >
+                          not in refill
+                        </Pill>
+                      )}
                       {r.posture ? (
                         <Pill color={POSTURE_COLOR[r.posture]}>
                           {POSTURE_LABEL[r.posture]}
