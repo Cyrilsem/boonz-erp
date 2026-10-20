@@ -8,6 +8,7 @@ import { getDubaiDate } from "@/lib/utils/date";
 import { machineShortId } from "@/lib/utils/machine-id";
 import { FieldHeader } from "../../components/field-header";
 import PendingMachinesPanel from "@/components/field/PendingMachinesPanel";
+import PodOrphanRowsPanel from "@/components/field/PodOrphanRowsPanel";
 
 interface DispatchLineInfo {
   shelf_code: string | null;
@@ -94,6 +95,7 @@ function DispatchingPageInner() {
         <FieldHeader title="Dispatching" />
         {tabs}
         <PendingMachinesPanel />
+        <PodOrphanRowsPanel />
       </div>
     );
   }
