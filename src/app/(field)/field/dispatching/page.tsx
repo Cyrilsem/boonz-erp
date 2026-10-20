@@ -9,6 +9,7 @@ import { machineShortId } from "@/lib/utils/machine-id";
 import { FieldHeader } from "../../components/field-header";
 import PendingMachinesPanel from "@/components/field/PendingMachinesPanel";
 import PodOrphanRowsPanel from "@/components/field/PodOrphanRowsPanel";
+import LotsToCountPanel from "@/components/field/LotsToCountPanel";
 
 interface DispatchLineInfo {
   shelf_code: string | null;
@@ -96,6 +97,7 @@ function DispatchingPageInner() {
         {tabs}
         <PendingMachinesPanel />
         <PodOrphanRowsPanel />
+        <LotsToCountPanel />
       </div>
     );
   }
