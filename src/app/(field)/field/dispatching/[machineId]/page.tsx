@@ -15,6 +15,12 @@ import { AddDispatchRowDialog } from "@/components/field/AddDispatchRowDialog";
 import ExpirySanityChecks from "@/components/field/ExpirySanityChecks";
 import ExpiryBreakdownDialog from "@/components/dispatch/ExpiryBreakdownDialog";
 import SplitPodLotDialog from "@/components/field/SplitPodLotDialog";
+import {
+  buildLanes,
+  laneItems,
+  REMOVE_ONLY_TITLE,
+  type LaneLeg,
+} from "@/lib/dispatch-lanes";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -70,7 +76,28 @@ interface DispatchLine {
   driver_confirmed: boolean;
   /** True if this line was added by the driver via the "+ Add variant" modal — can be removed inline */
   driver_added: boolean;
+  /** PRD-144 P3-1: lane picture inputs (source_kind and the move pairing). */
+  source_kind: string | null;
+  is_m2m: boolean;
+  m2m_partner_id: string | null;
+  m2m_transfer_id: string | null;
 }
+
+// PRD-144 P3-1: a dispatch line as a lane leg (shared with the packing page).
+const toLaneLeg = (l: DispatchLine): LaneLeg => ({
+  dispatch_id: l.dispatch_id,
+  action: l.dispatch_action,
+  source_kind: l.source_kind,
+  shelf_code: l.shelf_code,
+  quantity: l.quantity,
+  boonz_name: l.boonz_product_name,
+  pod_name: l.pod_product_name,
+  pod_product_id: l.pod_product_id,
+  is_m2m: l.is_m2m,
+  m2m_partner_id: l.m2m_partner_id,
+  m2m_transfer_id: l.m2m_transfer_id,
+  comment: l.comment,
+});
 
 const RETURN_REASONS = [
   "Not added to machine",
@@ -363,6 +390,10 @@ export default function DispatchingDetailPage() {
         is_internal_move,
         internal_move_cleared_at,
         pod_lot_id,
+        source_kind,
+        is_m2m,
+        m2m_partner_id,
+        m2m_transfer_id,
         shelf_configurations(shelf_code),
         pod_products(pod_product_name)
       `,
@@ -457,6 +488,10 @@ export default function DispatchingDetailPage() {
               c.startsWith("[DRIVER-INSERT]") || c.startsWith("[DRIVER ADDED]")
             );
           })(),
+          source_kind: (line.source_kind as string | null) ?? null,
+          is_m2m: !!(line.is_m2m as boolean | null),
+          m2m_partner_id: (line.m2m_partner_id as string | null) ?? null,
+          m2m_transfer_id: (line.m2m_transfer_id as string | null) ?? null,
         };
       });
       // Resolve boonz_product_name for each line so the driver sees the
@@ -1241,6 +1276,10 @@ export default function DispatchingDetailPage() {
   const shelves = Array.from(grouped.entries()).sort((a, b) =>
     a[0].localeCompare(b[0]),
   );
+  // PRD-144 P3-1: the lane picture for every shelf with a Remove or a move.
+  const laneByShelf = new Map(
+    buildLanes(lines, toLaneLeg).lanes.map((ln) => [ln.shelf_code, ln]),
+  );
 
   return (
     <div className="px-4 py-4 pb-40">
@@ -1410,7 +1449,16 @@ export default function DispatchingDetailPage() {
           Surfaces both filled and planned totals so the driver can sanity-check
           before save AND after a post-confirm refetch.
        */}
-      {shelves.map(([shelfCode, shelfLines], idx) => {
+      {shelves.map(([shelfCode, groupLines], idx) => {
+        const lane = laneByShelf.get(shelfCode) ?? null;
+        // PRD-144 P3-1: lane order is OUT to warehouse, OUT to another shelf,
+        // IN from another shelf, IN from warehouse; anything off the lane after.
+        const shelfLines = lane
+          ? [
+              ...laneItems(lane),
+              ...groupLines.filter((l) => !laneItems(lane).includes(l)),
+            ]
+          : groupLines;
         const multi = shelfLines.length > 1;
         // Add (Refill / Add New) totals and Remove totals tracked separately.
         const addLines = shelfLines.filter(
@@ -1494,6 +1542,59 @@ export default function DispatchingDetailPage() {
                 </div>
               )}
             </div>
+            {lane && (
+              <div
+                className={`mb-2 rounded-lg border px-3 py-2 text-xs ${
+                  lane.removeOnly
+                    ? "border-amber-300 bg-amber-50 text-amber-900 dark:border-amber-800 dark:bg-amber-950/30 dark:text-amber-200"
+                    : "border-blue-200 bg-blue-50 text-blue-900 dark:border-blue-900 dark:bg-blue-950/30 dark:text-blue-200"
+                }`}
+              >
+                {lane.removeOnly && (
+                  <p className="font-bold uppercase tracking-wide">
+                    ⚠ {REMOVE_ONLY_TITLE}
+                  </p>
+                )}
+                <p className="text-sm font-semibold">{lane.header}</p>
+                <ul className="mt-1 space-y-0.5">
+                  {lane.outWarehouse.map((l) => (
+                    <li key={l.dispatch_id}>
+                      OUT to warehouse:{" "}
+                      {l.boonz_product_name ?? l.pod_product_name} ×{" "}
+                      {l.quantity}
+                    </li>
+                  ))}
+                  {lane.outShelf.map((m) => (
+                    <li key={m.item.dispatch_id}>
+                      OUT to {m.otherShelf ?? "another shelf"}:{" "}
+                      {m.item.boonz_product_name ?? m.item.pod_product_name} ×{" "}
+                      {m.item.quantity}
+                      <span className="opacity-70">
+                        {" "}
+                        ·{" "}
+                        {m.partner?.action === "added"
+                          ? `placed on ${m.otherShelf}`
+                          : `confirm on ${m.otherShelf ?? "the other shelf"}`}
+                      </span>
+                    </li>
+                  ))}
+                  {lane.inShelf.map((m) => (
+                    <li key={m.item.dispatch_id}>
+                      IN from {m.otherShelf ?? "another shelf"}:{" "}
+                      {m.item.boonz_product_name ?? m.item.pod_product_name} ×{" "}
+                      {m.item.quantity}
+                    </li>
+                  ))}
+                  {lane.inWarehouse.map((l) => (
+                    <li key={l.dispatch_id}>
+                      IN from warehouse:{" "}
+                      {l.boonz_product_name ?? l.pod_product_name} ×{" "}
+                      {l.quantity}
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            )}
             <ul className="space-y-2">
               {shelfLines.map((line) => {
                 const expiryStyle = getExpiryStyle(line.expiry_date);
