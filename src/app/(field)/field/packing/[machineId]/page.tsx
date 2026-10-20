@@ -29,6 +29,7 @@ import {
   type Lane,
   type LaneLeg,
 } from "@/lib/dispatch-lanes";
+import { lineMaxAvailable, type LineLotRow } from "@/lib/dispatch-line-edit";
 // ─── Types ────────────────────────────────────────────────────────────────────
 
 // PRD-030 partial-pack / no-dark-stage: "not_filled" = zero stock available, line
@@ -157,6 +158,12 @@ const toLaneLeg = (l: PackLine): LaneLeg => ({
   m2m_transfer_id: l.m2m_transfer_id,
   comment: l.dispatch_comment,
 });
+
+// PRD-145 P3-3: the card's lot rows (the primary row plus the slices folded into it).
+const cardLotRows = (l: PackLine): LineLotRow[] => [
+  { packed: l.packed, filled_quantity: l.filled_quantity },
+  ...l.extraSlicePacked.map((s) => ({ packed: true, filled_quantity: s.qty })),
+];
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -3128,11 +3135,11 @@ export default function PackingDetailPage() {
                   picked_up: false,
                   allowed_tabs: ["product", "qty"],
                   maxAvailable: addLine.from_warehouse_name
-                    ? Math.max(
-                        0,
+                    ? lineMaxAvailable(
                         addLine.warehouse_stock -
                           (committedByProduct.get(addLine.boonz_product_id) ??
                             0),
+                        cardLotRows(addLine),
                       )
                     : undefined,
                 })
@@ -5250,12 +5257,12 @@ export default function PackingDetailPage() {
                                 picked_up: false,
                                 allowed_tabs: ["qty", "source", "remove"],
                                 maxAvailable: line.from_warehouse_name
-                                  ? Math.max(
-                                      0,
+                                  ? lineMaxAvailable(
                                       line.warehouse_stock -
                                         (committedByProduct.get(
                                           line.boonz_product_id,
                                         ) ?? 0),
+                                      cardLotRows(line),
                                     )
                                   : undefined,
                               })
