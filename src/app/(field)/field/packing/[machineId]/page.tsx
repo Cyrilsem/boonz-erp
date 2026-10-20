@@ -21,7 +21,11 @@ import {
   REMOVE_LEG_CHIP,
   REPACK_DESTRUCTIVE_WARNING,
 } from "../_lib/pack-messages";
-import { buildPackPicks, fefoAllocate } from "../_lib/build-picks";
+import {
+  allocatePreferring,
+  buildPackPicks,
+  pinnedFirst,
+} from "../_lib/build-picks";
 import {
   buildLanes,
   laneItems,
@@ -132,6 +136,8 @@ interface PackLine {
   source_kind: string | null;
   /** PRD-145 P3-2: set on a lot child row written by pack_dispatch_line. */
   parent_dispatch_id: string | null;
+  /** PRD-145 P3-4: the lot push pinned (refill_dispatching.from_wh_inventory_id). */
+  pinned_wh_inventory_id: string | null;
 }
 
 interface MachineInfo {
@@ -628,6 +634,7 @@ export default function PackingDetailPage() {
         `
         dispatch_id,
         parent_dispatch_id,
+        from_wh_inventory_id,
         boonz_product_id,
         pod_product_id,
         shelf_id,
@@ -1013,7 +1020,11 @@ export default function PackingDetailPage() {
       }
 
       const productId = line.boonz_product_id ?? "";
-      const batches = batchPool.get(productId) ?? [];
+      // PRD-145 P3-4: the pinned lot is preselected, then FEFO.
+      const batches = pinnedFirst(
+        batchPool.get(productId) ?? [],
+        (line as Record<string, unknown>).from_wh_inventory_id as string | null,
+      );
       let remaining = line.quantity ?? 0;
       const allocations: BatchAllocation[] = [];
 
@@ -1228,6 +1239,9 @@ export default function PackingDetailPage() {
           null,
         parent_dispatch_id:
           ((line as Record<string, unknown>).parent_dispatch_id as
+            string | null) ?? null,
+        pinned_wh_inventory_id:
+          ((line as Record<string, unknown>).from_wh_inventory_id as
             string | null) ?? null,
       };
     });
@@ -1759,9 +1773,40 @@ export default function PackingDetailPage() {
       line.warehouse_stock ??
       0;
     const qty = Math.max(0, Math.min(Math.trunc(qtyRaw || 0), cap));
-    const alloc = fefoAllocate(line.singleBatches ?? [], qty);
+    const alloc = allocatePreferring(
+      line.singleBatches ?? [],
+      qty,
+      line.pinned_wh_inventory_id,
+    );
     setBatchPickQtys((prev) => ({ ...prev, [line.dispatch_id]: alloc }));
     updateAction(line.dispatch_id, "packed");
+  }
+
+  // PRD-145 P3-4: one tap moves the line's pick to this lot (the rest FEFO when
+  // the lot is short). Stock already committed to other lines is left out.
+  function pickFromLot(line: PackLine, whId: string) {
+    const batches = (line.singleBatches ?? []).map((b) => ({
+      ...b,
+      stock: Math.max(
+        0,
+        b.stock -
+          committedForBatch(
+            b.wh_inventory_id,
+            line.boonz_product_id,
+            b.expiry,
+            line.dispatch_id,
+          ),
+      ),
+    }));
+    const picked = Object.values(batchPickQtys[line.dispatch_id] ?? {}).reduce(
+      (s, v) => s + v,
+      0,
+    );
+    const total = picked > 0 ? picked : line.recommended_qty;
+    setBatchPickQtys((prev) => ({
+      ...prev,
+      [line.dispatch_id]: allocatePreferring(batches, total, whId),
+    }));
   }
 
   // PRD-049 Phase B: zero out every batch of one variant on a mix line. A flavor
@@ -3107,6 +3152,17 @@ export default function PackingDetailPage() {
                       >
                         ⚑ over
                       </span>
+                    )}
+                    {!isReadOnly && batchAvailable > 0 && pickQty === 0 && (
+                      <button
+                        type="button"
+                        onClick={() => pickFromLot(addLine, b.wh_inventory_id)}
+                        className="text-[10px] font-semibold text-blue-600 underline dark:text-blue-400"
+                      >
+                        {addLine.pinned_wh_inventory_id === b.wh_inventory_id
+                          ? "pinned lot"
+                          : "use this lot"}
+                      </button>
                     )}
                   </div>
                   <span className={`text-xs ${urgencyColor}`}>
@@ -5159,6 +5215,26 @@ export default function PackingDetailPage() {
                                           ⚑ over
                                         </span>
                                       )}
+                                      {!isReadOnly &&
+                                        !isVenueBatch &&
+                                        batchAvailable > 0 &&
+                                        pickQty === 0 && (
+                                          <button
+                                            type="button"
+                                            onClick={() =>
+                                              pickFromLot(
+                                                line,
+                                                b.wh_inventory_id,
+                                              )
+                                            }
+                                            className="text-[10px] font-semibold text-blue-600 underline dark:text-blue-400"
+                                          >
+                                            {line.pinned_wh_inventory_id ===
+                                            b.wh_inventory_id
+                                              ? "pinned lot"
+                                              : "use this lot"}
+                                          </button>
+                                        )}
                                     </div>
                                     <span className={`text-xs ${urgencyColor}`}>
                                       {days !== null ? `${days}d` : "—"}

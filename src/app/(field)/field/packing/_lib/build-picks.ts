@@ -56,6 +56,40 @@ export function fefoAllocate(
 }
 
 /**
+ * PRD-145 P3-4: the lot push pinned goes first, then FEFO. Lots of a product
+ * can differ from what the plan pinned (a ghost tail lot), so the pinned lot is
+ * the preselection and the packer can move the whole pick to any live lot.
+ */
+export function pinnedFirst<T extends { wh_inventory_id: string }>(
+  batches: T[],
+  pinnedId: string | null | undefined,
+): T[] {
+  if (!pinnedId) return batches;
+  const pinned = batches.filter((b) => b.wh_inventory_id === pinnedId);
+  return [...pinned, ...batches.filter((b) => b.wh_inventory_id !== pinnedId)];
+}
+
+/**
+ * Allocate `qty` with `preferredId` first (up to its stock), the rest FEFO.
+ * The one-tap "all from this lot" on the pack screen.
+ */
+export function allocatePreferring(
+  batches: PickBatch[],
+  qty: number,
+  preferredId: string | null,
+): Record<string, number> {
+  const preferred = batches.find((b) => b.wh_inventory_id === preferredId);
+  const first = preferred ? Math.min(Math.max(0, preferred.stock), qty) : 0;
+  const rest = fefoAllocate(
+    batches.filter((b) => b.wh_inventory_id !== preferredId),
+    qty - first,
+  );
+  return preferred && first > 0
+    ? { [preferred.wh_inventory_id]: first, ...rest }
+    : rest;
+}
+
+/**
  * The picks for one line. `groups` is one entry per boonz product (one for a
  * single-product line, one per variant on a mix line). Lots with 0 picked and
  * frozen slices are skipped, never fatal. Picks come out in FEFO order.
