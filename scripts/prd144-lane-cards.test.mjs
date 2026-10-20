@@ -197,3 +197,84 @@ test("M2M legs and plain refills stay off lane cards", () => {
     ["m1", "f1"],
   );
 });
+
+// ── PRD-145 P3-2: the edit view groups lot rows into the line ────────────────
+const { groupLines, planLowerTotal } = await import(
+  new URL("../src/lib/dispatch-line-groups.ts", import.meta.url).href
+);
+
+// AMZ-1038-3001-O1 A12 Mountain Dew on 2026-10-20 as pack_dispatch_line left it
+// at 04:29 (write_audit_log): the parent row on the 2027-06-10 lot, its child on
+// the 2027-07-04 lot. The child carries no source_kind, as pack writes it.
+const A12_MOUNTAIN_DEW = [
+  {
+    dispatch_id: "25bf2e46-7611-4b6f-b3ff-47ee56ec9c48",
+    parent_dispatch_id: null,
+    machine_id: "a75b847a-e920-4a94-bb2f-600280ff8b3c",
+    shelf_id: "35a8ac28-d9fd-48e5-9863-3110d92cc05d",
+    boonz_product_id: "e257ce9b-f752-4556-b872-ade88f245c6e",
+    action: "Refill",
+    source_kind: "wh",
+    quantity: 1,
+    filled_quantity: 1,
+    packed: true,
+    expiry_date: "2027-06-10",
+  },
+  {
+    dispatch_id: "65681a9c-f4a5-4f14-aee3-4a2f8dcbc855",
+    parent_dispatch_id: "25bf2e46-7611-4b6f-b3ff-47ee56ec9c48",
+    machine_id: "a75b847a-e920-4a94-bb2f-600280ff8b3c",
+    shelf_id: "35a8ac28-d9fd-48e5-9863-3110d92cc05d",
+    boonz_product_id: "e257ce9b-f752-4556-b872-ade88f245c6e",
+    action: "Refill",
+    source_kind: null,
+    quantity: 2,
+    filled_quantity: 2,
+    packed: true,
+    expiry_date: "2027-07-04",
+  },
+];
+
+test("PRD-145 P3-2: AMZ-1038 A12 Mountain Dew is one line of 3 with lots 2 (2027-07-04) and 1 (2027-06-10)", () => {
+  const groups = groupLines(A12_MOUNTAIN_DEW);
+  assert.equal(groups.length, 1);
+  const [g] = groups;
+  assert.equal(g.total, 3);
+  assert.equal(g.key.root_dispatch_id, "25bf2e46-7611-4b6f-b3ff-47ee56ec9c48");
+  assert.equal(g.key.source_kind, "wh");
+  assert.deepEqual(
+    g.lots.map((l) => [l.qty, l.expiry_date]),
+    [
+      [2, "2027-07-04"],
+      [1, "2027-06-10"],
+    ],
+  );
+});
+
+test("PRD-145 P3-2: lowering A12 to 2 gives back from the latest expiry (CS 20 Oct: newest-expiry first)", () => {
+  const [g] = groupLines(A12_MOUNTAIN_DEW);
+  assert.deepEqual(
+    planLowerTotal(g.lots, 2).map((l) => [l.qty, l.expiry_date]),
+    [
+      [1, "2027-07-04"],
+      [1, "2027-06-10"],
+    ],
+  );
+  assert.deepEqual(
+    planLowerTotal(g.lots, 1).map((l) => [l.qty, l.expiry_date]),
+    [[1, "2027-06-10"]],
+  );
+});
+
+test("PRD-145 P3-2: an unpacked line totals its planned quantity; separate plan lines stay separate", () => {
+  const base = {
+    ...A12_MOUNTAIN_DEW[0],
+    packed: false,
+    filled_quantity: null,
+    quantity: 3,
+  };
+  const other = { ...base, dispatch_id: "other-line", quantity: 2 };
+  const groups = groupLines([base, other]);
+  assert.equal(groups.length, 2);
+  assert.deepEqual(groups.map((g) => g.total).sort(), [2, 3]);
+});

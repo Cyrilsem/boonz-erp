@@ -40,6 +40,38 @@ export async function editDispatchQty(input: {
   return { ok: true, data };
 }
 
+// ─── 1a) amend_dispatch_line_total (PRD-145 P3-2) ─────────────────────────────
+// A packed line is one row per warehouse lot. The edit acts on the line total:
+// a lower gives back from the latest-expiry lot first, a raise picks the
+// earliest live lot. The server re-derives the line from the group key.
+export async function amendDispatchLineTotal(input: {
+  group: {
+    machine_id: string;
+    shelf_id: string;
+    boonz_product_id: string;
+    action: string;
+    source_kind: string;
+    root_dispatch_id: string;
+  };
+  newTotal: number;
+  reason: string;
+  revalidate?: string;
+}): Promise<ActionResult> {
+  if (!Number.isInteger(input.newTotal) || input.newTotal < 0)
+    return { ok: false, error: "Quantity must be a whole number ≥ 0" };
+  if (input.reason.trim().length < 5)
+    return { ok: false, error: "Give a reason (5+ characters)" };
+  const supabase = await createClient();
+  const { data, error } = await supabase.rpc("amend_dispatch_line_total", {
+    p_group: input.group,
+    p_new_total: input.newTotal,
+    p_reason: input.reason.trim(),
+  });
+  if (error) return { ok: false, error: error.message };
+  if (input.revalidate) revalidatePath(input.revalidate);
+  return { ok: true, data };
+}
+
 // ─── 1b) edit_transfer_qty (PRD-049 Phase C) ──────────────────────────────────
 // Atomic both-leg qty edit for an M2M transfer pair. Use this instead of
 // editDispatchQty when the row is an M2M transfer (sourceKind 'm2m'); the single-leg
