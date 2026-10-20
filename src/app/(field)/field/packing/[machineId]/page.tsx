@@ -22,6 +22,13 @@ import {
   REPACK_DESTRUCTIVE_WARNING,
 } from "../_lib/pack-messages";
 import { buildPackPicks, fefoAllocate } from "../_lib/build-picks";
+import {
+  buildLanes,
+  laneItems,
+  REMOVE_ONLY_TITLE,
+  type Lane,
+  type LaneLeg,
+} from "@/lib/dispatch-lanes";
 // ─── Types ────────────────────────────────────────────────────────────────────
 
 // PRD-030 partial-pack / no-dark-stage: "not_filled" = zero stock available, line
@@ -134,6 +141,22 @@ const WH_NAMES: Record<string, string> = {
   "4fcfb52c-271f-4aa7-a373-3495e3271cd3": "WH MCC",
 };
 const whLabel = (id: string): string => WH_NAMES[id] ?? `WH ${id.slice(0, 8)}`;
+
+// PRD-144 P3-1: a pack line as a lane leg (shared with the driver page).
+const toLaneLeg = (l: PackLine): LaneLeg => ({
+  dispatch_id: l.dispatch_id,
+  action: l.dispatch_action,
+  source_kind: l.source_kind,
+  shelf_code: l.shelf_code,
+  quantity: l.recommended_qty,
+  boonz_name: l.variantStocks ? null : (l.boonz_display_name ?? l.display_name),
+  pod_name: l.pod_product_name,
+  pod_product_id: l.pod_product_id,
+  is_m2m: l.is_m2m,
+  m2m_partner_id: l.m2m_partner_id,
+  m2m_transfer_id: l.m2m_transfer_id,
+  comment: l.dispatch_comment,
+});
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -2461,10 +2484,13 @@ export default function PackingDetailPage() {
   // otherwise the badge and the gate disagree (Remove-only machines showed pending
   // while the server would let Finish through). Remove/other actions are inherently
   // resolved.
+  // PRD-144 P3-1: an intra_machine Add New is packed when it is written (the
+  // driver moves units between shelves), so once packed it never holds Finish.
   const isGatingLine = (l: PackLine) =>
-    l.dispatch_action === "Refill" ||
-    l.dispatch_action === "Add New" ||
-    l.dispatch_action === "Add";
+    (l.dispatch_action === "Refill" ||
+      l.dispatch_action === "Add New" ||
+      l.dispatch_action === "Add") &&
+    !(l.source_kind === "intra_machine" && l.packed);
   const pendingCount = lines.filter(
     (l) => isGatingLine(l) && l.action === null,
   ).length;
@@ -2509,6 +2535,14 @@ export default function PackingDetailPage() {
   const m2mLines = activeLines.filter((l) => l.is_m2m);
   const nonM2mLines = activeLines.filter((l) => !l.is_m2m);
 
+  // PRD-144 P3-1: a lane with any Remove or intra_machine leg is one lane card
+  // with every leg on it (src/lib/dispatch-lanes.ts). Only the rest go through
+  // the pairing below, so a Remove never pairs with an Add New any more.
+  const { lanes: swapLanes, rest: nonLaneLines } = buildLanes(
+    nonM2mLines,
+    toLaneLeg,
+  );
+
   // Group M2M lines by transfer_id for display
   const m2mByTransfer = new Map<string, PackLine[]>();
   for (const ml of m2mLines) {
@@ -2521,11 +2555,13 @@ export default function PackingDetailPage() {
   // Pair Add New ↔ Remove by SHELF (not by position — position-based pairing
   // created cross-shelf nonsense like "Remove Loacker A03 → Add KitKat B04").
   // M2M lines are excluded — they show in their own section.
-  const addNewLines = nonM2mLines.filter(
+  const addNewLines = nonLaneLines.filter(
     (l) => l.dispatch_action === "Add New",
   );
-  const removeLines = nonM2mLines.filter((l) => l.dispatch_action === "Remove");
-  const refillLines = nonM2mLines.filter(
+  const removeLines = nonLaneLines.filter(
+    (l) => l.dispatch_action === "Remove",
+  );
+  const refillLines = nonLaneLines.filter(
     (l) => l.dispatch_action !== "Add New" && l.dispatch_action !== "Remove",
   );
 
@@ -2676,7 +2712,17 @@ export default function PackingDetailPage() {
     });
   }
 
-  // Section 2: Swaps — paired Add New + Remove
+  // Section 1.75: swap lanes (PRD-144 P3-1)
+  if (swapLanes.length > 0) {
+    sections.push({
+      key: "lanes",
+      icon: "🔄",
+      title: "Swap lanes",
+      lines: swapLanes.flatMap(laneItems),
+    });
+  }
+
+  // Section 2: Swaps — Add New lines on lanes with no Remove (new product)
   if (swapPairs.length > 0) {
     sections.push({
       key: "swap",
@@ -2716,6 +2762,627 @@ export default function PackingDetailPage() {
       title: "Previously returned",
       lines: returnedLines,
     });
+  }
+
+  // PRD-144 P3-1: the pick table and per-line controls for a warehouse Add
+  // leg, shared by the add-only swap card and the lane card's IN from
+  // warehouse rows.
+  function renderWarehouseAddBody(
+    addLine: PackLine,
+    removeLine: PackLine | null,
+  ) {
+    const bothPacked =
+      addLine.action === "packed" &&
+      (!removeLine || removeLine.action === "packed");
+    const isMix = addLine.variantStocks !== null;
+    const addCommitted = !isMix
+      ? (committedByProduct.get(addLine.boonz_product_id) ?? 0)
+      : 0;
+    const addAvailable = addLine.warehouse_stock - addCommitted;
+    const totalBatchAvailable =
+      !isMix && addLine.singleBatches && addLine.singleBatches.length > 0
+        ? addLine.singleBatches.reduce((sum, b) => {
+            const bc = committedForBatch(
+              b.wh_inventory_id,
+              addLine.boonz_product_id,
+              b.expiry,
+              addLine.dispatch_id,
+            );
+            return sum + Math.max(0, b.stock - bc);
+          }, 0)
+        : addAvailable;
+    const fullyCommitted =
+      !isMix && addCommitted > 0 && totalBatchAvailable <= 0;
+    return (
+      <>
+        {/* Batch/FIFO rows for Add line */}
+        {isMix ? (
+          <div className="mb-2">
+            {addLine.variantStocks!.every(
+              (v) => v.packQty === 0 && v.stock === 0,
+            ) ? (
+              <p className="text-xs font-medium text-amber-600 dark:text-amber-400">
+                ⚠ No warehouse stock
+              </p>
+            ) : (
+              <div className="space-y-2">
+                {addLine
+                  .variantStocks!.filter((v) => v.packQty > 0 || v.stock > 0)
+                  .map((v) => {
+                    const vpTotal = v.batches.reduce(
+                      (sum, b) =>
+                        sum +
+                        (batchPickQtys[addLine.dispatch_id]?.[
+                          b.wh_inventory_id
+                        ] ?? 0),
+                      0,
+                    );
+                    return (
+                      <div key={v.boonzProductId}>
+                        <div className="mb-1 text-xs font-semibold uppercase tracking-wide text-neutral-700 dark:text-neutral-300">
+                          {v.name}
+                        </div>
+                        <div className="w-full overflow-hidden rounded-lg border border-neutral-200 divide-y divide-neutral-100 dark:divide-neutral-800 dark:border-neutral-700">
+                          <div className="grid grid-cols-4 bg-neutral-50 px-3 py-1.5 text-xs font-medium text-neutral-500 dark:bg-neutral-900 dark:text-neutral-400">
+                            <span>Expiry</span>
+                            <span>In Stock</span>
+                            <span>Pick Qty</span>
+                            <span>Age</span>
+                          </div>
+                          {v.batches.map((b) => {
+                            const pickQty =
+                              batchPickQtys[addLine.dispatch_id]?.[
+                                b.wh_inventory_id
+                              ] ?? 0;
+                            const batchCommitted = committedForBatch(
+                              b.wh_inventory_id,
+                              v.boonzProductId,
+                              b.expiry,
+                              addLine.dispatch_id,
+                            );
+                            const batchAvailable = Math.max(
+                              0,
+                              b.stock - batchCommitted,
+                            );
+                            // PRD-050: cap at the variant PLAN (v.packQty), not stock.
+                            const batchCap = batchPlanCap(
+                              addLine.dispatch_id,
+                              v.batches,
+                              v.packQty,
+                              b.wh_inventory_id,
+                            );
+                            const oversub = pickQty > batchAvailable;
+                            const days = b.expiry
+                              ? Math.ceil(
+                                  (new Date(b.expiry + "T00:00:00").getTime() -
+                                    Date.now()) /
+                                    86400000,
+                                )
+                              : null;
+                            const urgencyColor =
+                              days === null
+                                ? "text-neutral-600 dark:text-neutral-300"
+                                : days <= 30
+                                  ? "text-red-500 font-medium dark:text-red-400"
+                                  : days <= 60
+                                    ? "text-amber-500 dark:text-amber-400"
+                                    : "text-neutral-600 dark:text-neutral-300";
+                            return (
+                              <div
+                                key={b.wh_inventory_id}
+                                className="grid grid-cols-4 items-center px-3 py-2 text-sm hover:bg-neutral-50 dark:hover:bg-neutral-900"
+                              >
+                                <div className="flex flex-col leading-tight">
+                                  <span
+                                    className={`font-mono text-xs ${urgencyColor}`}
+                                  >
+                                    {b.expiry ? formatExpiry(b.expiry) : "—"}
+                                  </span>
+                                  <span
+                                    className="truncate text-[10px] text-neutral-500 dark:text-neutral-400"
+                                    title={v.name}
+                                  >
+                                    {v.name}
+                                  </span>
+                                </div>
+                                <span className="text-xs text-neutral-600 dark:text-neutral-400">
+                                  {b.stock}u
+                                </span>
+                                <div className="flex flex-col items-center gap-0.5">
+                                  <input
+                                    type="number"
+                                    min={0}
+                                    max={batchCap}
+                                    value={pickQty}
+                                    aria-label={`Pick quantity, batch expiring ${b.expiry ?? "no date"}`}
+                                    disabled={isReadOnly}
+                                    onChange={(e) => {
+                                      const val = Math.min(
+                                        batchCap,
+                                        Math.max(
+                                          0,
+                                          parseInt(e.target.value) || 0,
+                                        ),
+                                      );
+                                      setBatchPickQtys((prev) => ({
+                                        ...prev,
+                                        [addLine.dispatch_id]: {
+                                          ...(prev[addLine.dispatch_id] ?? {}),
+                                          [b.wh_inventory_id]: val,
+                                        },
+                                      }));
+                                    }}
+                                    className={`min-h-[44px] w-16 rounded border px-2 text-center text-sm focus:outline-none focus:border-blue-400 focus-visible:outline focus-visible:outline-2 focus-visible:outline-blue-500 disabled:opacity-50 dark:bg-neutral-800 dark:text-neutral-200 ${
+                                      oversub
+                                        ? "border-amber-400"
+                                        : "border-neutral-300 dark:border-neutral-600"
+                                    }`}
+                                  />
+                                  {oversub && (
+                                    <span
+                                      className="inline-flex items-center gap-0.5 rounded bg-amber-50 px-1 text-[9px] font-medium text-amber-700 dark:bg-amber-950/30 dark:text-amber-300"
+                                      title="Picking more than is in warehouse stock"
+                                    >
+                                      ⚑ over
+                                    </span>
+                                  )}
+                                </div>
+                                <span className={`text-xs ${urgencyColor}`}>
+                                  {days !== null ? `${days}d` : "—"}
+                                </span>
+                              </div>
+                            );
+                          })}
+                          <div className="grid grid-cols-4 border-t border-neutral-200 bg-neutral-50 px-3 py-1.5 dark:border-neutral-800 dark:bg-neutral-900">
+                            <span className="col-span-2 text-xs text-neutral-500">
+                              Total picked
+                            </span>
+                            <span className="text-sm font-semibold text-neutral-800 dark:text-neutral-200">
+                              {vpTotal}
+                            </span>
+                            <span />
+                          </div>
+                        </div>
+                      </div>
+                    );
+                  })}
+              </div>
+            )}
+          </div>
+        ) : !addLine.singleBatches || addLine.singleBatches.length === 0 ? (
+          addLine.warehouse_stock > 0 ? (
+            <p className="mb-2 inline-flex items-center gap-1 rounded bg-neutral-100 px-2 py-0.5 text-xs text-neutral-600 dark:bg-neutral-800 dark:text-neutral-400">
+              {addLine.warehouse_stock} units available in warehouse
+            </p>
+          ) : (
+            <p className="mb-2 inline-flex items-center gap-1 rounded bg-amber-50 px-2 py-0.5 text-xs text-amber-700 dark:bg-amber-900/30 dark:text-amber-300">
+              ⚠ No stock found in warehouse
+            </p>
+          )
+        ) : (
+          <div className="mb-2 w-full overflow-hidden rounded-lg border border-neutral-200 divide-y divide-neutral-100 dark:divide-neutral-800 dark:border-neutral-700">
+            <div className="grid grid-cols-4 bg-neutral-50 px-3 py-1.5 text-xs font-medium text-neutral-500 dark:bg-neutral-900 dark:text-neutral-400">
+              <span>Expiry</span>
+              <span>In Stock</span>
+              <span>Pick Qty</span>
+              <span>Age</span>
+            </div>
+            {addLine.singleBatches.map((b) => {
+              const pickQty =
+                batchPickQtys[addLine.dispatch_id]?.[b.wh_inventory_id] ?? 0;
+              const batchCommitted = committedForBatch(
+                b.wh_inventory_id,
+                addLine.boonz_product_id,
+                b.expiry,
+                addLine.dispatch_id,
+              );
+              const batchAvailable = Math.max(0, b.stock - batchCommitted);
+              // PRD-050: cap at the PLAN (line total), not stock.
+              const batchCap = batchPlanCap(
+                addLine.dispatch_id,
+                addLine.singleBatches ?? [],
+                addLine.recommended_qty,
+                b.wh_inventory_id,
+              );
+              const oversub = pickQty > batchAvailable;
+              const days = b.expiry
+                ? Math.ceil(
+                    (new Date(b.expiry + "T00:00:00").getTime() - Date.now()) /
+                      86400000,
+                  )
+                : null;
+              const urgencyColor =
+                days === null
+                  ? "text-neutral-600 dark:text-neutral-300"
+                  : days <= 30
+                    ? "text-red-500 font-medium dark:text-red-400"
+                    : days <= 60
+                      ? "text-amber-500 dark:text-amber-400"
+                      : "text-neutral-600 dark:text-neutral-300";
+              return (
+                <div
+                  key={b.wh_inventory_id}
+                  className="grid grid-cols-4 items-center px-3 py-2 text-sm hover:bg-neutral-50 dark:hover:bg-neutral-900"
+                >
+                  <div className="flex flex-col leading-tight">
+                    <span className={`font-mono text-xs ${urgencyColor}`}>
+                      {b.expiry ? formatExpiry(b.expiry) : "—"}
+                    </span>
+                    <span
+                      className="truncate text-[10px] text-neutral-500 dark:text-neutral-400"
+                      title={stripPodPrefix(
+                        addLine.boonz_display_name ?? addLine.display_name,
+                        addLine.pod_product_name,
+                      )}
+                    >
+                      {stripPodPrefix(
+                        addLine.boonz_display_name ?? addLine.display_name,
+                        addLine.pod_product_name,
+                      )}
+                    </span>
+                  </div>
+                  <span className="text-xs text-neutral-600 dark:text-neutral-400">
+                    {b.stock}u
+                  </span>
+                  <div className="flex flex-col items-center gap-0.5">
+                    <input
+                      type="number"
+                      min={0}
+                      max={batchCap}
+                      value={pickQty}
+                      aria-label={`Pick quantity, batch expiring ${b.expiry ?? "no date"}`}
+                      disabled={isReadOnly}
+                      onChange={(e) => {
+                        const val = Math.min(
+                          batchCap,
+                          Math.max(0, parseInt(e.target.value) || 0),
+                        );
+                        setBatchPickQtys((prev) => ({
+                          ...prev,
+                          [addLine.dispatch_id]: {
+                            ...(prev[addLine.dispatch_id] ?? {}),
+                            [b.wh_inventory_id]: val,
+                          },
+                        }));
+                      }}
+                      className={`min-h-[44px] w-16 rounded border px-2 text-center text-sm focus:outline-none focus:border-blue-400 focus-visible:outline focus-visible:outline-2 focus-visible:outline-blue-500 disabled:opacity-50 dark:bg-neutral-800 dark:text-neutral-200 ${
+                        oversub
+                          ? "border-amber-400"
+                          : "border-neutral-300 dark:border-neutral-600"
+                      }`}
+                    />
+                    {oversub && (
+                      <span
+                        className="inline-flex items-center gap-0.5 rounded bg-amber-50 px-1 text-[9px] font-medium text-amber-700 dark:bg-amber-950/30 dark:text-amber-300"
+                        title="Picking more than is in warehouse stock"
+                      >
+                        ⚑ over
+                      </span>
+                    )}
+                  </div>
+                  <span className={`text-xs ${urgencyColor}`}>
+                    {days !== null ? `${days}d` : "—"}
+                  </span>
+                </div>
+              );
+            })}
+            <div className="grid grid-cols-4 border-t border-neutral-200 bg-neutral-50 px-3 py-1.5 dark:border-neutral-800 dark:bg-neutral-900">
+              <span className="col-span-2 text-xs text-neutral-500">
+                Total picked
+              </span>
+              <span className="text-sm font-semibold text-neutral-800 dark:text-neutral-200">
+                {variantTotal(addLine.dispatch_id)}
+              </span>
+              <span />
+            </div>
+          </div>
+        )}
+
+        {/* Confirm swap packed button */}
+        {!isReadOnly && (
+          <button
+            onClick={() => {
+              handlePackedClick(addLine);
+              updateSwapAction(
+                addLine.dispatch_id,
+                removeLine?.dispatch_id ?? null,
+                "packed",
+              );
+            }}
+            disabled={fullyCommitted}
+            className={`mt-2 w-full rounded-lg border py-2 text-xs font-semibold transition-colors disabled:cursor-not-allowed disabled:opacity-40 ${
+              bothPacked
+                ? "border-green-400 bg-green-50 text-green-700 dark:bg-green-950/40 dark:text-green-400"
+                : "border-blue-300 bg-[#1e3a5f] text-white hover:bg-[#172e4d] dark:border-blue-800"
+            }`}
+          >
+            {bothPacked
+              ? "✓ Swap confirmed"
+              : fullyCommitted
+                ? "✗ No stock"
+                : "✓ Confirm swap packed"}
+          </button>
+        )}
+        {isReadOnly && bothPacked && (
+          <p className="mt-2 text-xs font-medium text-green-700 dark:text-green-300">
+            ✓ Swap confirmed
+          </p>
+        )}
+        {/* A swap line gets the SAME per-line controls a refill line
+                            has, so an out-of-stock or wrong-flavor swap never stalls
+                            the machine: edit the product/qty, mark not filled, or skip
+                            with a reason. These act on THIS add leg only; the paired
+                            Remove is non-gating (isGatingLine) so it never holds Finish.
+                            Reuses the refill handlers (no new component). */}
+        {!isReadOnly && !bothPacked && (
+          <div className="mt-2 flex gap-2">
+            <button
+              onClick={() =>
+                setEditingDispatch({
+                  dispatch_id: addLine.dispatch_id,
+                  quantity: addLine.packed_qty || addLine.recommended_qty,
+                  shelf_code: addLine.shelf_code,
+                  boonz_product_name:
+                    addLine.boonz_display_name ?? addLine.display_name,
+                  source_kind: addLine.from_warehouse_name ? "wh" : "unknown",
+                  picked_up: false,
+                  allowed_tabs: ["product", "qty"],
+                  maxAvailable: addLine.from_warehouse_name
+                    ? Math.max(
+                        0,
+                        addLine.warehouse_stock -
+                          (committedByProduct.get(addLine.boonz_product_id) ??
+                            0),
+                      )
+                    : undefined,
+                })
+              }
+              title="Change product / edit qty"
+              aria-label="Edit swap line"
+              className="shrink-0 rounded-lg border border-neutral-300 px-2.5 py-1.5 text-xs font-semibold text-neutral-600 transition-colors hover:bg-neutral-50 dark:border-neutral-700 dark:text-neutral-400 dark:hover:bg-neutral-800"
+            >
+              ✎
+            </button>
+            <button
+              onClick={() => handleMarkNotFilled(addLine)}
+              disabled={saving}
+              title="No stock to swap in — mark not filled (no warehouse debit)"
+              className={`flex-1 rounded-lg border py-1.5 text-xs font-semibold transition-colors disabled:cursor-not-allowed disabled:opacity-40 ${
+                addLine.action === "not_filled"
+                  ? "border-amber-400 bg-amber-50 text-amber-700 dark:bg-amber-950/40 dark:text-amber-400"
+                  : "border-neutral-200 text-neutral-500 hover:bg-neutral-50 dark:border-neutral-700 dark:hover:bg-neutral-800"
+              }`}
+            >
+              ⊘ Not filled
+            </button>
+            <button
+              onClick={() => {
+                setSkipDialogLine(addLine);
+                setSkipCategory("");
+                setSkipNote("");
+              }}
+              disabled={saving}
+              title="Cannot swap this line — skip with a reason"
+              className="flex-1 rounded-lg border border-neutral-200 py-1.5 text-xs font-semibold text-neutral-500 transition-colors hover:bg-neutral-50 disabled:cursor-not-allowed disabled:opacity-40 dark:border-neutral-700 dark:hover:bg-neutral-800"
+            >
+              ✗ Skip
+            </button>
+          </div>
+        )}
+      </>
+    );
+  }
+
+  // PRD-144 P3-1: one card per swap lane. OUT to warehouse, OUT to another
+  // shelf, IN from another shelf, IN from warehouse. Remove and intra_machine
+  // legs need no pack action; only the warehouse Adds carry a pick table.
+  function renderLaneCard(lane: Lane<PackLine>) {
+    const whAdds = lane.inWarehouse;
+    const lanePacked =
+      whAdds.every((l) => l.action !== null) &&
+      lane.inShelf.every((m) => m.item.action === "packed");
+    const declinable = [
+      ...whAdds.filter((l) => l.dispatch_action === "Add New" && !l.packed),
+      ...lane.outWarehouse.filter((l) => !l.packed),
+    ];
+    const canDecline =
+      !isReadOnly &&
+      whAdds.some((l) => l.dispatch_action === "Add New") &&
+      whAdds.every((l) => !l.packed && l.action === null);
+    const sub = "px-3 pt-2 pb-1 text-[11px] font-bold uppercase tracking-wide";
+    const shelfChip =
+      "rounded bg-neutral-100 px-1.5 py-0.5 text-xs font-mono text-neutral-700 dark:bg-neutral-800 dark:text-neutral-200";
+    return (
+      <li
+        key={`lane-${lane.shelf_code}`}
+        className={`overflow-hidden rounded-lg border bg-white p-0 dark:bg-neutral-950 ${
+          lane.removeOnly
+            ? "border-amber-300 dark:border-amber-800"
+            : "border-blue-200 dark:border-blue-900"
+        } ${
+          lanePacked
+            ? "border-l-4 border-l-green-400"
+            : lane.removeOnly
+              ? "border-l-[3px] border-l-amber-400"
+              : "border-l-[3px] border-l-blue-400"
+        }`}
+      >
+        <div
+          className={`px-3 py-2 ${
+            lane.removeOnly
+              ? "bg-amber-50 text-amber-800 dark:bg-amber-950/30 dark:text-amber-300"
+              : "bg-blue-50 text-blue-800 dark:bg-blue-950/30 dark:text-blue-300"
+          }`}
+        >
+          {lane.removeOnly && (
+            <p className="text-xs font-bold uppercase tracking-wide">
+              ⚠ {REMOVE_ONLY_TITLE}
+            </p>
+          )}
+          <p className="text-sm font-semibold">{lane.header}</p>
+        </div>
+
+        {lane.outWarehouse.length > 0 && (
+          <div className="border-b border-neutral-100 pb-2 dark:border-neutral-800">
+            <p className={`${sub} text-red-700 dark:text-red-400`}>
+              OUT to warehouse
+            </p>
+            <ul className="space-y-1 px-3">
+              {lane.outWarehouse.map((l) => (
+                <li
+                  key={l.dispatch_id}
+                  className="flex flex-wrap items-center gap-1.5 text-sm"
+                >
+                  <span className="font-medium">{l.display_name}</span>
+                  <span className="text-xs text-red-700 dark:text-red-300">
+                    Driver returns {l.recommended_qty || 0} units
+                  </span>
+                  <span className="text-[11px] text-neutral-500 dark:text-neutral-400">
+                    · no pack action
+                  </span>
+                </li>
+              ))}
+            </ul>
+          </div>
+        )}
+
+        {lane.outShelf.length > 0 && (
+          <div className="border-b border-neutral-100 pb-2 dark:border-neutral-800">
+            <p className={`${sub} text-teal-700 dark:text-teal-400`}>
+              OUT to another shelf
+            </p>
+            <ul className="space-y-1 px-3">
+              {lane.outShelf.map((m) => {
+                const moved = m.partner?.action === "packed";
+                return (
+                  <li
+                    key={m.item.dispatch_id}
+                    className="flex flex-wrap items-center gap-1.5 text-sm"
+                  >
+                    <span className="font-medium">{m.item.display_name}</span>
+                    <span className="text-xs text-neutral-600 dark:text-neutral-300">
+                      · {m.item.recommended_qty} units
+                    </span>
+                    <span className="text-teal-600">→</span>
+                    <span className={shelfChip}>{m.otherShelf ?? "?"}</span>
+                    <span className="text-[11px] text-teal-700 dark:text-teal-400">
+                      No packing needed
+                    </span>
+                    <span
+                      className={`text-[11px] font-medium ${
+                        moved
+                          ? "text-green-700 dark:text-green-400"
+                          : "text-neutral-500 dark:text-neutral-400"
+                      }`}
+                    >
+                      {moved
+                        ? "✓ Move confirmed"
+                        : `Confirm on ${m.otherShelf ?? "the other shelf"}`}
+                    </span>
+                  </li>
+                );
+              })}
+            </ul>
+          </div>
+        )}
+
+        {lane.inShelf.length > 0 && (
+          <div className="border-b border-neutral-100 pb-2 dark:border-neutral-800">
+            <p className={`${sub} text-teal-700 dark:text-teal-400`}>
+              IN from another shelf
+            </p>
+            <ul className="space-y-2 px-3">
+              {lane.inShelf.map((m) => {
+                const done = m.item.action === "packed";
+                return (
+                  <li key={m.item.dispatch_id} className="text-sm">
+                    <p className="flex flex-wrap items-center gap-1.5">
+                      <span className="font-medium">{m.item.display_name}</span>
+                      <span className="text-xs text-neutral-600 dark:text-neutral-300">
+                        · {m.item.recommended_qty} units
+                      </span>
+                      <span className={shelfChip}>{m.otherShelf ?? "?"}</span>
+                      <span className="text-teal-600">→</span>
+                      <span className={shelfChip}>{lane.shelf_code}</span>
+                    </p>
+                    <p className="mt-0.5 text-[11px] text-teal-700 dark:text-teal-400">
+                      No packing needed
+                    </p>
+                    {!isReadOnly && (
+                      <button
+                        onClick={() =>
+                          updateSwapAction(
+                            m.item.dispatch_id,
+                            m.partner?.dispatch_id ?? null,
+                            "packed",
+                          )
+                        }
+                        className={`mt-1 w-full rounded-lg border py-2 text-xs font-semibold transition-colors ${
+                          done
+                            ? "border-green-400 bg-green-50 text-green-700 dark:bg-green-950/40 dark:text-green-400"
+                            : "border-teal-300 bg-teal-600 text-white hover:bg-teal-700 dark:border-teal-800"
+                        }`}
+                      >
+                        {done ? "✓ Move confirmed" : "✓ Confirm move"}
+                      </button>
+                    )}
+                    {isReadOnly && done && (
+                      <p className="mt-1 text-xs font-medium text-green-600 dark:text-green-400">
+                        ✓ Move confirmed
+                      </p>
+                    )}
+                  </li>
+                );
+              })}
+            </ul>
+          </div>
+        )}
+
+        {whAdds.length > 0 && (
+          <div>
+            <p className={`${sub} text-green-700 dark:text-green-400`}>
+              IN from warehouse
+            </p>
+            {whAdds.map((addLine) => (
+              <div
+                key={addLine.dispatch_id}
+                className="border-b border-neutral-100 px-3 pb-3 last:border-b-0 dark:border-neutral-800"
+              >
+                <p className="mb-1 flex flex-wrap items-center gap-1.5 text-sm">
+                  <span className="rounded bg-green-100 px-1.5 py-0.5 text-xs font-semibold text-green-700 dark:bg-green-900/40 dark:text-green-400">
+                    ✅ PACK
+                  </span>
+                  <span className="font-medium">{addLine.display_name}</span>
+                  <span className="text-xs text-neutral-500 dark:text-neutral-400">
+                    · {addLine.recommended_qty} units
+                  </span>
+                </p>
+                {renderWarehouseAddBody(addLine, null)}
+              </div>
+            ))}
+          </div>
+        )}
+
+        {canDecline && declinable.length > 0 && (
+          <div className="px-3 pb-3">
+            <button
+              onClick={() =>
+                setDeclineTarget({
+                  dispatchIds: declinable.map((l) => l.dispatch_id),
+                  shelfId:
+                    whAdds[0]?.shelf_id ?? lane.outWarehouse[0]?.shelf_id ?? "",
+                  shelfCode: lane.shelf_code,
+                  label: lane.header,
+                })
+              }
+              className="mt-2 w-full rounded-lg border border-neutral-300 py-2 text-xs font-semibold text-neutral-600 hover:bg-neutral-50 dark:border-neutral-700 dark:text-neutral-300 dark:hover:bg-neutral-800/60"
+            >
+              Don&apos;t swap
+            </button>
+          </div>
+        )}
+      </li>
+    );
   }
 
   return (
@@ -3295,7 +3962,9 @@ export default function PackingDetailPage() {
               className={`mb-3 flex items-center gap-2 text-sm font-bold uppercase tracking-wide ${
                 section.key === "remove"
                   ? "text-red-600 dark:text-red-400"
-                  : section.key === "swap" || section.key === "swap-style"
+                  : section.key === "swap" ||
+                      section.key === "swap-style" ||
+                      section.key === "lanes"
                     ? "text-blue-600 dark:text-blue-400"
                     : section.key === "m2m"
                       ? "text-teal-600 dark:text-teal-400"
@@ -3306,14 +3975,19 @@ export default function PackingDetailPage() {
             >
               <span className="text-base">{section.icon}</span> {section.title}
               <span className="ml-auto text-xs font-normal text-neutral-600 dark:text-neutral-300">
-                {section.key === "swap"
-                  ? `${swapPairs.length} pair${swapPairs.length !== 1 ? "s" : ""}`
-                  : section.key === "m2m"
-                    ? `${m2mByTransfer.size} transfer${m2mByTransfer.size !== 1 ? "s" : ""}`
-                    : `${section.lines.length} item${section.lines.length !== 1 ? "s" : ""}`}
+                {section.key === "lanes"
+                  ? `${swapLanes.length} lane${swapLanes.length !== 1 ? "s" : ""}`
+                  : section.key === "swap"
+                    ? `${swapPairs.length} pair${swapPairs.length !== 1 ? "s" : ""}`
+                    : section.key === "m2m"
+                      ? `${m2mByTransfer.size} transfer${m2mByTransfer.size !== 1 ? "s" : ""}`
+                      : `${section.lines.length} item${section.lines.length !== 1 ? "s" : ""}`}
               </span>
             </h2>
             <ul className="space-y-2">
+              {/* ── SWAP LANES (PRD-144 P3-1) ── */}
+              {section.key === "lanes" && swapLanes.map(renderLaneCard)}
+
               {/* ── SWAP SECTION: combined cards ── */}
               {section.key === "swap" &&
                 swapPairs.map((pair) => {
@@ -3322,30 +3996,6 @@ export default function PackingDetailPage() {
                   const bothPacked =
                     addLine.action === "packed" &&
                     (!removeLine || removeLine.action === "packed");
-                  const isMix = addLine.variantStocks !== null;
-
-                  // Committed stock for the Add line
-                  const addCommitted = !isMix
-                    ? (committedByProduct.get(addLine.boonz_product_id) ?? 0)
-                    : 0;
-                  const addAvailable = addLine.warehouse_stock - addCommitted;
-                  const totalBatchAvailable =
-                    !isMix &&
-                    addLine.singleBatches &&
-                    addLine.singleBatches.length > 0
-                      ? addLine.singleBatches.reduce((sum, b) => {
-                          const bc = committedForBatch(
-                            b.wh_inventory_id,
-                            addLine.boonz_product_id,
-                            b.expiry,
-                            addLine.dispatch_id,
-                          );
-                          return sum + Math.max(0, b.stock - bc);
-                        }, 0)
-                      : addAvailable;
-                  const fullyCommitted =
-                    !isMix && addCommitted > 0 && totalBatchAvailable <= 0;
-
                   const isInternalMove = internalMoveAddIds.has(
                     addLine.dispatch_id,
                   );
@@ -3441,40 +4091,6 @@ export default function PackingDetailPage() {
                         <span className="text-sm">🔄</span> SWAP
                       </div>
 
-                      {/* Remove sub-section */}
-                      {removeLine && (
-                        <div className="border-b border-blue-100 bg-red-50/60 px-3 py-2.5 dark:border-blue-900 dark:bg-red-950/20">
-                          <p className="flex flex-wrap items-center gap-1.5 text-sm">
-                            <span className="rounded bg-red-100 px-1.5 py-0.5 text-xs font-semibold text-red-700 dark:bg-red-900/40 dark:text-red-400">
-                              ❌ REMOVE
-                            </span>
-                            <span className="rounded bg-red-100 px-1.5 py-0.5 text-xs font-mono text-red-700 dark:bg-red-900/40 dark:text-red-300">
-                              {removeLine.shelf_code}
-                            </span>
-                            <span className="font-medium">
-                              {removeLine.display_name}
-                            </span>
-                            <span className="text-xs text-red-600 dark:text-red-300">
-                              · {removeLine.recommended_qty || "—"} units
-                            </span>
-                            {/* PRD-115 §2.3: these units come OUT of the machine.
-                                They draw nothing from the warehouse, so they are
-                                not part of the pick below. */}
-                            <span
-                              title="Remove legs come out of the machine and draw no warehouse stock - do not add them to your pick"
-                              className="rounded bg-white px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-red-600 dark:bg-red-950/50 dark:text-red-300"
-                            >
-                              {REMOVE_LEG_CHIP}
-                            </span>
-                          </p>
-                        </div>
-                      )}
-
-                      {/* Arrow separator */}
-                      <div className="flex items-center gap-2 px-3 py-1.5 text-xs text-neutral-600 dark:text-neutral-300">
-                        <span>↓</span> replace with
-                      </div>
-
                       {/* Add sub-section */}
                       <div className="px-3 pb-3">
                         <p className="mb-1 flex flex-wrap items-center gap-1.5 text-sm">
@@ -3492,425 +4108,7 @@ export default function PackingDetailPage() {
                           </span>
                         </p>
 
-                        {/* Batch/FIFO rows for Add line */}
-                        {isMix ? (
-                          <div className="mb-2">
-                            {addLine.variantStocks!.every(
-                              (v) => v.packQty === 0 && v.stock === 0,
-                            ) ? (
-                              <p className="text-xs font-medium text-amber-600 dark:text-amber-400">
-                                ⚠ No warehouse stock
-                              </p>
-                            ) : (
-                              <div className="space-y-2">
-                                {addLine
-                                  .variantStocks!.filter(
-                                    (v) => v.packQty > 0 || v.stock > 0,
-                                  )
-                                  .map((v) => {
-                                    const vpTotal = v.batches.reduce(
-                                      (sum, b) =>
-                                        sum +
-                                        (batchPickQtys[addLine.dispatch_id]?.[
-                                          b.wh_inventory_id
-                                        ] ?? 0),
-                                      0,
-                                    );
-                                    return (
-                                      <div key={v.boonzProductId}>
-                                        <div className="mb-1 text-xs font-semibold uppercase tracking-wide text-neutral-700 dark:text-neutral-300">
-                                          {v.name}
-                                        </div>
-                                        <div className="w-full overflow-hidden rounded-lg border border-neutral-200 divide-y divide-neutral-100 dark:divide-neutral-800 dark:border-neutral-700">
-                                          <div className="grid grid-cols-4 bg-neutral-50 px-3 py-1.5 text-xs font-medium text-neutral-500 dark:bg-neutral-900 dark:text-neutral-400">
-                                            <span>Expiry</span>
-                                            <span>In Stock</span>
-                                            <span>Pick Qty</span>
-                                            <span>Age</span>
-                                          </div>
-                                          {v.batches.map((b) => {
-                                            const pickQty =
-                                              batchPickQtys[
-                                                addLine.dispatch_id
-                                              ]?.[b.wh_inventory_id] ?? 0;
-                                            const batchCommitted =
-                                              committedForBatch(
-                                                b.wh_inventory_id,
-                                                v.boonzProductId,
-                                                b.expiry,
-                                                addLine.dispatch_id,
-                                              );
-                                            const batchAvailable = Math.max(
-                                              0,
-                                              b.stock - batchCommitted,
-                                            );
-                                            // PRD-050: cap at the variant PLAN (v.packQty), not stock.
-                                            const batchCap = batchPlanCap(
-                                              addLine.dispatch_id,
-                                              v.batches,
-                                              v.packQty,
-                                              b.wh_inventory_id,
-                                            );
-                                            const oversub =
-                                              pickQty > batchAvailable;
-                                            const days = b.expiry
-                                              ? Math.ceil(
-                                                  (new Date(
-                                                    b.expiry + "T00:00:00",
-                                                  ).getTime() -
-                                                    Date.now()) /
-                                                    86400000,
-                                                )
-                                              : null;
-                                            const urgencyColor =
-                                              days === null
-                                                ? "text-neutral-600 dark:text-neutral-300"
-                                                : days <= 30
-                                                  ? "text-red-500 font-medium dark:text-red-400"
-                                                  : days <= 60
-                                                    ? "text-amber-500 dark:text-amber-400"
-                                                    : "text-neutral-600 dark:text-neutral-300";
-                                            return (
-                                              <div
-                                                key={b.wh_inventory_id}
-                                                className="grid grid-cols-4 items-center px-3 py-2 text-sm hover:bg-neutral-50 dark:hover:bg-neutral-900"
-                                              >
-                                                <div className="flex flex-col leading-tight">
-                                                  <span
-                                                    className={`font-mono text-xs ${urgencyColor}`}
-                                                  >
-                                                    {b.expiry
-                                                      ? formatExpiry(b.expiry)
-                                                      : "—"}
-                                                  </span>
-                                                  <span
-                                                    className="truncate text-[10px] text-neutral-500 dark:text-neutral-400"
-                                                    title={v.name}
-                                                  >
-                                                    {v.name}
-                                                  </span>
-                                                </div>
-                                                <span className="text-xs text-neutral-600 dark:text-neutral-400">
-                                                  {b.stock}u
-                                                </span>
-                                                <div className="flex flex-col items-center gap-0.5">
-                                                  <input
-                                                    type="number"
-                                                    min={0}
-                                                    max={batchCap}
-                                                    value={pickQty}
-                                                    aria-label={`Pick quantity, batch expiring ${b.expiry ?? "no date"}`}
-                                                    disabled={isReadOnly}
-                                                    onChange={(e) => {
-                                                      const val = Math.min(
-                                                        batchCap,
-                                                        Math.max(
-                                                          0,
-                                                          parseInt(
-                                                            e.target.value,
-                                                          ) || 0,
-                                                        ),
-                                                      );
-                                                      setBatchPickQtys(
-                                                        (prev) => ({
-                                                          ...prev,
-                                                          [addLine.dispatch_id]:
-                                                            {
-                                                              ...(prev[
-                                                                addLine
-                                                                  .dispatch_id
-                                                              ] ?? {}),
-                                                              [b.wh_inventory_id]:
-                                                                val,
-                                                            },
-                                                        }),
-                                                      );
-                                                    }}
-                                                    className={`min-h-[44px] w-16 rounded border px-2 text-center text-sm focus:outline-none focus:border-blue-400 focus-visible:outline focus-visible:outline-2 focus-visible:outline-blue-500 disabled:opacity-50 dark:bg-neutral-800 dark:text-neutral-200 ${
-                                                      oversub
-                                                        ? "border-amber-400"
-                                                        : "border-neutral-300 dark:border-neutral-600"
-                                                    }`}
-                                                  />
-                                                  {oversub && (
-                                                    <span
-                                                      className="inline-flex items-center gap-0.5 rounded bg-amber-50 px-1 text-[9px] font-medium text-amber-700 dark:bg-amber-950/30 dark:text-amber-300"
-                                                      title="Picking more than is in warehouse stock"
-                                                    >
-                                                      ⚑ over
-                                                    </span>
-                                                  )}
-                                                </div>
-                                                <span
-                                                  className={`text-xs ${urgencyColor}`}
-                                                >
-                                                  {days !== null
-                                                    ? `${days}d`
-                                                    : "—"}
-                                                </span>
-                                              </div>
-                                            );
-                                          })}
-                                          <div className="grid grid-cols-4 border-t border-neutral-200 bg-neutral-50 px-3 py-1.5 dark:border-neutral-800 dark:bg-neutral-900">
-                                            <span className="col-span-2 text-xs text-neutral-500">
-                                              Total picked
-                                            </span>
-                                            <span className="text-sm font-semibold text-neutral-800 dark:text-neutral-200">
-                                              {vpTotal}
-                                            </span>
-                                            <span />
-                                          </div>
-                                        </div>
-                                      </div>
-                                    );
-                                  })}
-                              </div>
-                            )}
-                          </div>
-                        ) : !addLine.singleBatches ||
-                          addLine.singleBatches.length === 0 ? (
-                          addLine.warehouse_stock > 0 ? (
-                            <p className="mb-2 inline-flex items-center gap-1 rounded bg-neutral-100 px-2 py-0.5 text-xs text-neutral-600 dark:bg-neutral-800 dark:text-neutral-400">
-                              {addLine.warehouse_stock} units available in
-                              warehouse
-                            </p>
-                          ) : (
-                            <p className="mb-2 inline-flex items-center gap-1 rounded bg-amber-50 px-2 py-0.5 text-xs text-amber-700 dark:bg-amber-900/30 dark:text-amber-300">
-                              ⚠ No stock found in warehouse
-                            </p>
-                          )
-                        ) : (
-                          <div className="mb-2 w-full overflow-hidden rounded-lg border border-neutral-200 divide-y divide-neutral-100 dark:divide-neutral-800 dark:border-neutral-700">
-                            <div className="grid grid-cols-4 bg-neutral-50 px-3 py-1.5 text-xs font-medium text-neutral-500 dark:bg-neutral-900 dark:text-neutral-400">
-                              <span>Expiry</span>
-                              <span>In Stock</span>
-                              <span>Pick Qty</span>
-                              <span>Age</span>
-                            </div>
-                            {addLine.singleBatches.map((b) => {
-                              const pickQty =
-                                batchPickQtys[addLine.dispatch_id]?.[
-                                  b.wh_inventory_id
-                                ] ?? 0;
-                              const batchCommitted = committedForBatch(
-                                b.wh_inventory_id,
-                                addLine.boonz_product_id,
-                                b.expiry,
-                                addLine.dispatch_id,
-                              );
-                              const batchAvailable = Math.max(
-                                0,
-                                b.stock - batchCommitted,
-                              );
-                              // PRD-050: cap at the PLAN (line total), not stock.
-                              const batchCap = batchPlanCap(
-                                addLine.dispatch_id,
-                                addLine.singleBatches ?? [],
-                                addLine.recommended_qty,
-                                b.wh_inventory_id,
-                              );
-                              const oversub = pickQty > batchAvailable;
-                              const days = b.expiry
-                                ? Math.ceil(
-                                    (new Date(
-                                      b.expiry + "T00:00:00",
-                                    ).getTime() -
-                                      Date.now()) /
-                                      86400000,
-                                  )
-                                : null;
-                              const urgencyColor =
-                                days === null
-                                  ? "text-neutral-600 dark:text-neutral-300"
-                                  : days <= 30
-                                    ? "text-red-500 font-medium dark:text-red-400"
-                                    : days <= 60
-                                      ? "text-amber-500 dark:text-amber-400"
-                                      : "text-neutral-600 dark:text-neutral-300";
-                              return (
-                                <div
-                                  key={b.wh_inventory_id}
-                                  className="grid grid-cols-4 items-center px-3 py-2 text-sm hover:bg-neutral-50 dark:hover:bg-neutral-900"
-                                >
-                                  <div className="flex flex-col leading-tight">
-                                    <span
-                                      className={`font-mono text-xs ${urgencyColor}`}
-                                    >
-                                      {b.expiry ? formatExpiry(b.expiry) : "—"}
-                                    </span>
-                                    <span
-                                      className="truncate text-[10px] text-neutral-500 dark:text-neutral-400"
-                                      title={stripPodPrefix(
-                                        addLine.boonz_display_name ??
-                                          addLine.display_name,
-                                        addLine.pod_product_name,
-                                      )}
-                                    >
-                                      {stripPodPrefix(
-                                        addLine.boonz_display_name ??
-                                          addLine.display_name,
-                                        addLine.pod_product_name,
-                                      )}
-                                    </span>
-                                  </div>
-                                  <span className="text-xs text-neutral-600 dark:text-neutral-400">
-                                    {b.stock}u
-                                  </span>
-                                  <div className="flex flex-col items-center gap-0.5">
-                                    <input
-                                      type="number"
-                                      min={0}
-                                      max={batchCap}
-                                      value={pickQty}
-                                      aria-label={`Pick quantity, batch expiring ${b.expiry ?? "no date"}`}
-                                      disabled={isReadOnly}
-                                      onChange={(e) => {
-                                        const val = Math.min(
-                                          batchCap,
-                                          Math.max(
-                                            0,
-                                            parseInt(e.target.value) || 0,
-                                          ),
-                                        );
-                                        setBatchPickQtys((prev) => ({
-                                          ...prev,
-                                          [addLine.dispatch_id]: {
-                                            ...(prev[addLine.dispatch_id] ??
-                                              {}),
-                                            [b.wh_inventory_id]: val,
-                                          },
-                                        }));
-                                      }}
-                                      className={`min-h-[44px] w-16 rounded border px-2 text-center text-sm focus:outline-none focus:border-blue-400 focus-visible:outline focus-visible:outline-2 focus-visible:outline-blue-500 disabled:opacity-50 dark:bg-neutral-800 dark:text-neutral-200 ${
-                                        oversub
-                                          ? "border-amber-400"
-                                          : "border-neutral-300 dark:border-neutral-600"
-                                      }`}
-                                    />
-                                    {oversub && (
-                                      <span
-                                        className="inline-flex items-center gap-0.5 rounded bg-amber-50 px-1 text-[9px] font-medium text-amber-700 dark:bg-amber-950/30 dark:text-amber-300"
-                                        title="Picking more than is in warehouse stock"
-                                      >
-                                        ⚑ over
-                                      </span>
-                                    )}
-                                  </div>
-                                  <span className={`text-xs ${urgencyColor}`}>
-                                    {days !== null ? `${days}d` : "—"}
-                                  </span>
-                                </div>
-                              );
-                            })}
-                            <div className="grid grid-cols-4 border-t border-neutral-200 bg-neutral-50 px-3 py-1.5 dark:border-neutral-800 dark:bg-neutral-900">
-                              <span className="col-span-2 text-xs text-neutral-500">
-                                Total picked
-                              </span>
-                              <span className="text-sm font-semibold text-neutral-800 dark:text-neutral-200">
-                                {variantTotal(addLine.dispatch_id)}
-                              </span>
-                              <span />
-                            </div>
-                          </div>
-                        )}
-
-                        {/* Confirm swap packed button */}
-                        {!isReadOnly && (
-                          <button
-                            onClick={() => {
-                              handlePackedClick(addLine);
-                              updateSwapAction(
-                                addLine.dispatch_id,
-                                removeLine?.dispatch_id ?? null,
-                                "packed",
-                              );
-                            }}
-                            disabled={fullyCommitted}
-                            className={`mt-2 w-full rounded-lg border py-2 text-xs font-semibold transition-colors disabled:cursor-not-allowed disabled:opacity-40 ${
-                              bothPacked
-                                ? "border-green-400 bg-green-50 text-green-700 dark:bg-green-950/40 dark:text-green-400"
-                                : "border-blue-300 bg-[#1e3a5f] text-white hover:bg-[#172e4d] dark:border-blue-800"
-                            }`}
-                          >
-                            {bothPacked
-                              ? "✓ Swap confirmed"
-                              : fullyCommitted
-                                ? "✗ No stock"
-                                : "✓ Confirm swap packed"}
-                          </button>
-                        )}
-                        {isReadOnly && bothPacked && (
-                          <p className="mt-2 text-xs font-medium text-green-700 dark:text-green-300">
-                            ✓ Swap confirmed
-                          </p>
-                        )}
-                        {/* A swap line gets the SAME per-line controls a refill line
-                            has, so an out-of-stock or wrong-flavor swap never stalls
-                            the machine: edit the product/qty, mark not filled, or skip
-                            with a reason. These act on THIS add leg only; the paired
-                            Remove is non-gating (isGatingLine) so it never holds Finish.
-                            Reuses the refill handlers (no new component). */}
-                        {!isReadOnly && !bothPacked && (
-                          <div className="mt-2 flex gap-2">
-                            <button
-                              onClick={() =>
-                                setEditingDispatch({
-                                  dispatch_id: addLine.dispatch_id,
-                                  quantity:
-                                    addLine.packed_qty ||
-                                    addLine.recommended_qty,
-                                  shelf_code: addLine.shelf_code,
-                                  boonz_product_name:
-                                    addLine.boonz_display_name ??
-                                    addLine.display_name,
-                                  source_kind: addLine.from_warehouse_name
-                                    ? "wh"
-                                    : "unknown",
-                                  picked_up: false,
-                                  allowed_tabs: ["product", "qty"],
-                                  maxAvailable: addLine.from_warehouse_name
-                                    ? Math.max(
-                                        0,
-                                        addLine.warehouse_stock -
-                                          (committedByProduct.get(
-                                            addLine.boonz_product_id,
-                                          ) ?? 0),
-                                      )
-                                    : undefined,
-                                })
-                              }
-                              title="Change product / edit qty"
-                              aria-label="Edit swap line"
-                              className="shrink-0 rounded-lg border border-neutral-300 px-2.5 py-1.5 text-xs font-semibold text-neutral-600 transition-colors hover:bg-neutral-50 dark:border-neutral-700 dark:text-neutral-400 dark:hover:bg-neutral-800"
-                            >
-                              ✎
-                            </button>
-                            <button
-                              onClick={() => handleMarkNotFilled(addLine)}
-                              disabled={saving}
-                              title="No stock to swap in — mark not filled (no warehouse debit)"
-                              className={`flex-1 rounded-lg border py-1.5 text-xs font-semibold transition-colors disabled:cursor-not-allowed disabled:opacity-40 ${
-                                addLine.action === "not_filled"
-                                  ? "border-amber-400 bg-amber-50 text-amber-700 dark:bg-amber-950/40 dark:text-amber-400"
-                                  : "border-neutral-200 text-neutral-500 hover:bg-neutral-50 dark:border-neutral-700 dark:hover:bg-neutral-800"
-                              }`}
-                            >
-                              ⊘ Not filled
-                            </button>
-                            <button
-                              onClick={() => {
-                                setSkipDialogLine(addLine);
-                                setSkipCategory("");
-                                setSkipNote("");
-                              }}
-                              disabled={saving}
-                              title="Cannot swap this line — skip with a reason"
-                              className="flex-1 rounded-lg border border-neutral-200 py-1.5 text-xs font-semibold text-neutral-500 transition-colors hover:bg-neutral-50 disabled:cursor-not-allowed disabled:opacity-40 dark:border-neutral-700 dark:hover:bg-neutral-800"
-                            >
-                              ✗ Skip
-                            </button>
-                          </div>
-                        )}
+                        {renderWarehouseAddBody(addLine, removeLine)}
                         {/* PRD-102 D2: decline the planner pair (unstarted only) */}
                         {!isReadOnly && !bothPacked && (
                           <button
@@ -4103,6 +4301,7 @@ export default function PackingDetailPage() {
 
               {/* ── PACK / REMOVE SECTIONS: individual cards ── */}
               {section.key !== "swap" &&
+                section.key !== "lanes" &&
                 section.key !== "m2m" &&
                 section.lines.map((line) => {
                   // ── Previously returned: read-only greyed card ────────────

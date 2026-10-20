@@ -100,7 +100,8 @@ assert(
 );
 assert(
   "A3: the drift counter feeds the banner, not a per-line list",
-  /(ctx\.)?driftLines \+= 1;/.test(page) && /setPlanDrift\((ctx\.)?driftLines\)/.test(page),
+  /(ctx\.)?driftLines \+= 1;/.test(page) &&
+    /setPlanDrift\((ctx\.)?driftLines\)/.test(page),
   "driftLines counter missing",
 );
 
@@ -157,10 +158,15 @@ assert(
   chip === "counts separately",
   chip,
 );
+// PRD-144 P3-1 retired the swap-pair surface: a swap lane's Remove legs now sit
+// on the lane card under "OUT to warehouse" as "Driver returns N units", which
+// is outside the pick table by construction.
 const chipUses = (page.match(/\{REMOVE_LEG_CHIP\}/g) ?? []).length;
 assert(
-  "§2.3: the chip renders on every Remove-leg surface (swap pair, remove card, qty>0 remove)",
-  chipUses >= 3,
+  "§2.3: the chip renders on every Remove-leg surface (remove card, qty>0 remove), and lane-card Remove legs read 'Driver returns'",
+  chipUses >= 2 &&
+    page.includes("OUT to warehouse") &&
+    page.includes("Driver returns {l.recommended_qty || 0} units"),
   `REMOVE_LEG_CHIP rendered ${chipUses}x`,
 );
 assert(
