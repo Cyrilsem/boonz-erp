@@ -1,5 +1,0 @@
-PRD-142b lock
-taken: 2026-10-19 17:39 Dubai
-hard stop: 12h after lock or 06:30 Dubai, whichever first
-
-note (PRD-144, 19 Oct 18:23 Dubai): PRD-144 deployed to production as 01b72ce on top of PRD-142b commit 30083ad (fast-forward, no shared files, no shared DB functions). This lock was not touched; it is still held by PRD-142b.
