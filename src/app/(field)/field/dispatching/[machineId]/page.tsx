@@ -406,7 +406,10 @@ export default function DispatchingDetailPage() {
       .eq("skipped", false)
       .eq("cancelled", false)
       .eq("machine_id", machineId)
-      .eq("picked_up", true);
+      .eq("picked_up", true)
+      // PRD-145 P3-5: a not_filled line carries 0 units, so there is nothing
+      // for the driver to put on the shelf.
+      .or("pack_outcome.is.null,pack_outcome.neq.not_filled");
 
     if (dispatchLines) {
       const mapped: DispatchLine[] = dispatchLines.map((line) => {
