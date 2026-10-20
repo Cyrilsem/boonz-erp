@@ -30,6 +30,11 @@ import {
   type LaneLeg,
 } from "@/lib/dispatch-lanes";
 import { lineMaxAvailable, type LineLotRow } from "@/lib/dispatch-line-edit";
+import {
+  groupLines,
+  lineRootId,
+  type LineGroup,
+} from "@/lib/dispatch-line-groups";
 // ─── Types ────────────────────────────────────────────────────────────────────
 
 // PRD-030 partial-pack / no-dark-stage: "not_filled" = zero stock available, line
@@ -125,6 +130,8 @@ interface PackLine {
   /** Raw source_kind from refill_dispatching. 'venue' = vox_at_venue supply,
    *  never warehouse-pinned by design (loop 2026-09-25/28 W5). */
   source_kind: string | null;
+  /** PRD-145 P3-2: set on a lot child row written by pack_dispatch_line. */
+  parent_dispatch_id: string | null;
 }
 
 interface MachineInfo {
@@ -420,6 +427,10 @@ export default function PackingDetailPage() {
   const [committedByProduct, setCommittedByProduct] = useState<
     Map<string, number>
   >(new Map());
+  /** PRD-145 P3-2: dispatch lines (lot rows grouped) keyed by the root dispatch_id. */
+  const [lineGroupByRoot, setLineGroupByRoot] = useState<
+    Map<string, LineGroup>
+  >(new Map());
   /** WS7: boonz_product_id → set of OTHER machine names that have committed (reserved) this stock today. */
   const [reservedMachinesByProduct, setReservedMachinesByProduct] = useState<
     Map<string, Set<string>>
@@ -436,6 +447,8 @@ export default function PackingDetailPage() {
     allowed_tabs: ("qty" | "shelf" | "product" | "source" | "remove")[];
     /** PRD-137 F6: free WH stock for this product, right now — caps the qty-edit input. Only set for source_kind "wh". */
     maxAvailable?: number;
+    /** PRD-145 P3-2: the whole line (all its lot rows); the qty edit acts on its total. */
+    line?: LineGroup;
   } | null>(null);
   /** PRD-137 F6: per-card pack RPC error, keyed by dispatch_id, so a failed pack shows on
    * the specific card instead of only the page-top banner. */
@@ -614,6 +627,7 @@ export default function PackingDetailPage() {
       .select(
         `
         dispatch_id,
+        parent_dispatch_id,
         boonz_product_id,
         pod_product_id,
         shelf_id,
@@ -1028,6 +1042,31 @@ export default function PackingDetailPage() {
     }
     setSiblingCommittedByBatch(siblingCommittedByBatch);
 
+    // PRD-145 P3-2: the edit dialog works on the line (all its lot rows), not one row.
+    setLineGroupByRoot(
+      new Map(
+        groupLines(
+          dispatchLines.map((d) => {
+            const r = d as Record<string, unknown>;
+            return {
+              dispatch_id: d.dispatch_id,
+              parent_dispatch_id:
+                (r.parent_dispatch_id as string | null) ?? null,
+              machine_id: machineId,
+              shelf_id: (r.shelf_id as string | null) ?? null,
+              boonz_product_id: (r.boonz_product_id as string | null) ?? null,
+              action: (r.action as string) ?? "Refill",
+              source_kind: (r.source_kind as string | null) ?? null,
+              quantity: (r.quantity as number | null) ?? 0,
+              filled_quantity: (r.filled_quantity as number | null) ?? null,
+              packed: !!(r.packed as boolean | null),
+              expiry_date: (r.expiry_date as string | null) ?? null,
+            };
+          }),
+        ).map((g) => [g.key.root_dispatch_id, g]),
+      ),
+    );
+
     // ── Step 5: Map lines ─────────────────────────────────────────────────────
     const mapped: PackLine[] = dispatchLines.map((line) => {
       const shelf = line.shelf_configurations as unknown as {
@@ -1187,6 +1226,9 @@ export default function PackingDetailPage() {
         source_kind:
           ((line as Record<string, unknown>).source_kind as string | null) ??
           null,
+        parent_dispatch_id:
+          ((line as Record<string, unknown>).parent_dispatch_id as
+            string | null) ?? null,
       };
     });
 
@@ -3127,7 +3169,10 @@ export default function PackingDetailPage() {
               onClick={() =>
                 setEditingDispatch({
                   dispatch_id: addLine.dispatch_id,
-                  quantity: addLine.packed_qty || addLine.recommended_qty,
+                  quantity:
+                    lineGroupByRoot.get(lineRootId(addLine))?.total ??
+                    (addLine.packed_qty || addLine.recommended_qty),
+                  line: lineGroupByRoot.get(lineRootId(addLine)),
                   shelf_code: addLine.shelf_code,
                   boonz_product_name:
                     addLine.boonz_display_name ?? addLine.display_name,
@@ -5247,7 +5292,10 @@ export default function PackingDetailPage() {
                               setEditingDispatch({
                                 dispatch_id: line.dispatch_id,
                                 quantity:
-                                  line.packed_qty || line.recommended_qty,
+                                  lineGroupByRoot.get(lineRootId(line))
+                                    ?.total ??
+                                  (line.packed_qty || line.recommended_qty),
+                                line: lineGroupByRoot.get(lineRootId(line)),
                                 shelf_code: line.shelf_code,
                                 boonz_product_name:
                                   line.boonz_display_name ?? line.display_name,
@@ -5620,6 +5668,7 @@ export default function PackingDetailPage() {
           editRole="warehouse_manager"
           allowedTabs={editingDispatch.allowed_tabs}
           maxAvailable={editingDispatch.maxAvailable}
+          line={editingDispatch.line}
           revalidate={`/field/packing/${machineId}`}
           onSuccess={() => {
             setEditingDispatch(null);

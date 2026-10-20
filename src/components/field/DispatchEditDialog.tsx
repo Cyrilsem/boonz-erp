@@ -2,6 +2,7 @@
 
 import { useState, useTransition } from "react";
 import {
+  amendDispatchLineTotal,
   editDispatchQty,
   editTransferQty,
   editDispatchShelf,
@@ -16,6 +17,7 @@ import {
   getPickableStockMessage,
 } from "@/app/(field)/field/_actions/dispatch-edits";
 import { WH_CENTRAL_ID } from "@/lib/dispatch-constants";
+import type { LineGroup } from "@/lib/dispatch-line-groups";
 
 type EditTab = "qty" | "shelf" | "product" | "source" | "remove";
 
@@ -34,6 +36,8 @@ interface Props {
   allowedTabs: EditTab[];
   /** PRD-137 F6: free WH stock for this product right now, if source_kind is "wh". Caps the qty input. */
   maxAvailable?: number;
+  /** PRD-145 P3-2: the whole line (its lot rows). Set: the qty tab edits the line total. */
+  line?: LineGroup;
   /** Path to revalidate after a successful edit */
   revalidate?: string;
   /** Callback after successful edit so parent can refetch */
@@ -51,6 +55,7 @@ export function DispatchEditDialog({
   editRole,
   allowedTabs,
   maxAvailable,
+  line,
   revalidate,
   onSuccess,
 }: Props) {
@@ -117,6 +122,17 @@ export function DispatchEditDialog({
                 (why.ok && why.data ? ` (${why.data})` : ""),
             );
             return;
+          }
+          // PRD-145 P3-2: a packed line is edited by its total, across its lot rows
+          // (edit_dispatch_qty refuses packed rows). Unpacked lines keep edit_dispatch_qty.
+          if (line?.packed && currentSourceKind !== "m2m") {
+            res = await amendDispatchLineTotal({
+              group: line.key,
+              newTotal: qty,
+              reason,
+              revalidate,
+            });
+            break;
           }
           // PRD-049 Phase C: an M2M transfer is a paired Remove+Add New. Editing one
           // leg via edit_dispatch_qty desyncs the pair, so route M2M rows to the
@@ -231,7 +247,7 @@ export function DispatchEditDialog({
         {tab === "qty" && (
           <div className="space-y-3">
             <label className="block text-sm">
-              New quantity
+              {line ? "Line total" : "New quantity"}
               <input
                 type="number"
                 value={qty}
@@ -247,6 +263,27 @@ export function DispatchEditDialog({
               >
                 Max available: {maxAvailable}
               </p>
+            )}
+            {line && line.lots.length > 0 && (
+              <div className="rounded border border-slate-200 px-2 py-1 text-xs text-slate-600 dark:border-slate-700 dark:text-slate-300">
+                <p className="mb-1 font-medium">
+                  {line.packed ? "Packed" : "Planned"} {line.total} across{" "}
+                  {line.lots.length} {line.lots.length === 1 ? "lot" : "lots"}
+                </p>
+                <ul>
+                  {line.lots.map((l) => (
+                    <li key={l.dispatch_id}>
+                      {l.expiry_date ?? "no expiry"} · {l.qty}
+                    </li>
+                  ))}
+                </ul>
+                {line.packed && (
+                  <p className="mt-1 text-slate-500">
+                    Lowering gives back from the latest expiry first; raising
+                    picks the earliest lot in stock. Reason required.
+                  </p>
+                )}
+              </div>
             )}
           </div>
         )}
