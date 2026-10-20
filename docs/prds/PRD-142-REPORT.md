@@ -101,3 +101,74 @@ Worth a look before confirming: four "Watch and adapt" machines (AMZ-1057, WPP-1
 **What is left.** The cannibalisation flag (6.3, display only) was not built. Outcome deltas after posture changes (5.5 item 8) belong to 142b. NOT_FLIPPABLE is never proposed automatically yet (it needs two monthly reviews of history); you can set it by hand. PRD-142b: engine hook, product posture in procurement and the swap pool, and retiring the old Lifecycle and Performance tabs.
 
 ## PRD-142a DONE
+
+## PRD-142b
+
+Lock taken 2026-10-19 17:39 Dubai. Hard stop 2026-10-20 05:39 Dubai. The session stalled on a database call from about 23:40 Dubai on 19 Oct and only resumed at 03:14 Dubai on 21 Oct, so the engine hook was not applied. Evidence for every line is in docs/prds/PRD-142-log.md under "PRD-142b log".
+
+### Items
+
+| Item | Status | Evidence |
+| --- | --- | --- |
+| A1 chart clipping | DONE | New SVG map with one clipPath on the plot; production DOM probe: 0 points and 0 trail ends outside the plot in every scope and position, also after hovers (before: 3 marks outside on Partner, one a 532 px trail) |
+| A2 axis domain per scope | DONE | Domains from the drawn points (prime included on Trails), log y kept; Partner Trails y 1.16 to 70.9 with Aquafina (52.55) and its trail inside; medians follow the population |
+| A3 tooltip | DONE | Card inside the chart on three hovers, flips above near the bottom; 0 SVG mutations on hover; no page height change. Flip-left branch not exercised on the 2560 px screen |
+| A4 product review panel | DONE | Panel on Products (65 open proposals on Boonz); reject_product_strategy_proposal with 30 day suppression, tested in a rolled-back run (Ice Tea) |
+| A5 navigation | DONE | Strategy > Machines and Strategy > Products in the sidebar; ?tab=products opens Products |
+| A6 cannibalisation flag | DONE | Product drawer card; Dubai Popcorn shows 3 flags |
+| A7 proposals only in refill | DONE | 35 machines proposed, 7 outside refill untouched and badged "not in refill" |
+| A8 phantom shelves | DONE | Drawer grid and shelf KPIs use cabinet_count; AMZ-1029 16 lanes (was 40); shelf KPIs were already right (AMZ-1029 dead 0.000 before and after, ADDMIND-1007 0.063 and 0.063); cleanup list docs/prds/PRD-142-phantom-shelves.md. No browser screenshot (hard stop) |
+| A9 new products visible | DONE | Huel INCUBATE, New, 5 units, supply block filled; shown under the slider with a "new, under threshold" marker. No browser screenshot (hard stop) |
+| 5.5 item 1 v_machine_posture_params and flags | DONE | Applied, inert |
+| 5.5 items 2, 3, 4, 5, 7 (fill_depth, swap_mode, shelf overrides, swap guard, picker multiplier, product posture in the pool) | BLOCKED (hard stop) | Written and parked, anchors verified, not applied; no fleet diff ran |
+| 5.5 item 6 TRANSFER recommendations | BLOCKED (hard stop) | Not written; design in the log |
+| 5.5 item 8 outcome deltas | BLOCKED (hard stop) | Not written |
+| 6.4 get_procurement_demand posture | BLOCKED (hard stop) | Not written; design in the log |
+| 7.1 Lifecycle Heatmap and Divest tabs | DONE | Removed, redirect to Strategy Products |
+| 7.1 Performance > Product Performance tab | DONE | Removed, redirect; component and get_product_velocity_ledger kept because /app/products > Performance still uses them |
+| 7.1 v_swap_candidate_ranking | BLOCKED | Unreferenced, but the database tool refused the DROP; SQL parked with rollback |
+| 7.1 Portfolio Map artifact | Superseded | The Products tab replaces it; the weekly manual refresh can stop |
+
+### Acceptance (section 8, 142b, with the 19 Oct change)
+
+| Check | Result | Evidence |
+| --- | --- | --- |
+| (a) flags false: rolled-back fleet diff empty | FAIL (not run) | Hook not applied; diff tool not installed before the hard stop |
+| (b) flags true: changes only on non-PROTECT_GROW machines | FAIL (not run) | Same |
+| (c) swap guard blocks an above-median removal | FAIL (not run) | Guard written, not applied |
+| (d) EXIT product absent from swap pool and procurement | FAIL (not run) | Pool filter written, not applied; procurement change not written |
+| (e) RESOURCE product in the decide block | FAIL (not run) | Not written |
+| Retired tabs redirect; no console errors | PASS (code), browser check not run | Redirect code in lifecycle and performance pages; /app/strategy had no console errors in production after Block A |
+| Parity and security gates | PASS | 7 prd142b migrations on prod and in the repo; overloads only engine_finalize_pod (pre-existing); anon-executable definers 0 |
+
+### Migrations (applied to prod and committed)
+
+20261019134423_prd142b_a7_posture_proposals_refill_scope, 20261019134554_prd142b_a4_product_proposal_review, 20261019134723_prd142b_a6_cannibalisation_flag, 20261019191204_prd142b_a8_phantom_shelves, 20261019191350_prd142b_a9_new_products_in_scope, 20261019191926_prd142b_b1_posture_params, 20261019192430_prd142b_b0_engine_diff_runs.
+
+Parked, not applied: supabase/migrations/parked/prd142b_b2_b4_engine_hook.sql, prd142b_b0b_fleet_diff_tool.sql, prd142b_c_retire_v_swap_candidate_ranking.sql.
+
+Rollback files: supabase/rollbacks/prd142b_a4_rollback.sql, prd142b_a6_rollback.sql, prd142b_a7_rollback.sql, prd142b_a8_rollback.sql, prd142b_a9_rollback.sql, prd142b_b0_rollback.sql, prd142b_b1_rollback.sql, prd142b_b2_b4_rollback.sql, prd142b_c_v_swap_candidate_ranking_rollback.sql.
+
+### Commits on main
+
+7731db3 (lock), be70e76, d4cf1cd, d4d643c, 2fb0bf1, 736e73e, de31a9d, 278532b, c9c64a3, plus this closeout and the lock release. Vercel deployed automatically up to 736e73e and de31a9d (checked); later code commits (278532b, c9c64a3) deploy the same way from main.
+
+### For CS (plain English)
+
+**What changed on the Strategy page.** The Products map no longer draws lines outside its frame, and its scale now fits whatever you are looking at, so Partner products such as Aquafina (about 52 a week) sit inside the chart with their trail. The hover card stays inside the chart and no longer makes the page jump. There is a "Review product proposals" list on the Products tab with Accept, Accept with edits and Reject (a rejected proposal stays quiet for 30 days). The sidebar has Strategy > Machines and Strategy > Products. The product drawer shows likely cannibalisation (for example Sunbites taking from Dubai Popcorn on AMZ-1057). Machines outside refill show "not in refill" and no longer get new proposals. The machine drawer only shows cabinets that exist (AMZ-1029 shows 16 lanes, not 40). New products under 3 months, such as Huel, always show on the map and in the table, marked "new, under threshold" when they sell less than the slider.
+
+**Old tabs retired.** Lifecycle Heatmap and Divest Plan, and Performance > Product Performance, are gone; old links land on Strategy > Products. The same Product Performance view still exists under Products > Performance and can be retired in PRD-143. You can stop republishing the Portfolio Map artifact.
+
+**Engine.** Nothing in the refill engine reads postures yet. The five switches exist in refill_settings: prd142_fill_depth_enabled false, prd142_swap_mode_enabled false, prd142_swap_guard_enabled true, prd142_picker_multiplier_enabled false, prd142_procurement_posture_enabled true. Today none of them changes anything, because the engine code that reads them is written but not installed.
+
+**What you need to do.**
+
+1. Nothing to deploy by hand; Vercel builds from main.
+2. Schedule the engine hook for a night window in a new loop (PRD-142c or inside PRD-143): Cody review of supabase/migrations/parked/prd142b_b2_b4_engine_hook.sql, install the diff tool, run the two full-fleet diffs, apply, then flip prd142_fill_depth_enabled and prd142_swap_mode_enabled when you are happy, and prd142_picker_multiplier_enabled later.
+3. Drop the old view v_swap_candidate_ranking yourself in the SQL editor (one line, file in supabase/migrations/parked), or let the next loop do it.
+4. Review the first product proposals in the new panel.
+5. Approve the phantom-shelves cleanup (152 rows on the four AMZ machines, AMZ-1046 and BEBEACH-1069) for a later night.
+
+**Left for PRD-143 (or a PRD-142c).** Engine hook items 2 to 8 and the procurement posture block; TRANSFER recommendations (needs 'TRANSFER' allowed on strategic_machine_tags); outcome deltas on the machine card; the phantom-shelves cleanup; retiring Products > Performance and get_product_velocity_ledger; the three-role smoke test and A8/A9 screenshots that the hard stop cut.
+
+## PRD-142b DONE
