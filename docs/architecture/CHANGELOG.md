@@ -1,5 +1,14 @@
 # Architecture Changelog
 
+## 2026-10-22 - PRD-146 hotfix: warehouse batch_id vocabulary on pod returns
+
+`approve_pod_inventory_edit` (`return_to_warehouse`, no matching WH lot) inserted batch `POD_RETURN-<edit_id>`,
+which `trg_enforce_warehouse_batch_id_vocabulary` rejects, so the approval raised and the edit stayed pending.
+Now inserts `RETURN-POD-<edit_id>` with status `Active` (CS decision; the approval is the warehouse's own act).
+Same defect, same fix, in three sibling WH writers: `apply_inventory_correction` (`RECOUNT-CORRECTION-`),
+`record_actual_refill` (`RETURN-REFILL-EVENT-`), `log_manual_refill` WH lot (`PO-NEW-PURCHASE-`).
+Migration `20261022124234_prd146_pod_return_batch_prefix_fix`. Cody: approve, Articles 1, 4, 6, 8, 12.
+
 ## 2026-09-07 — D4 expiry pull-horizon table (close-out item 3)
 
 New `expiry_pull_horizon(category, pull_days_before_expiry, updated_by, reason)`, seeded by
